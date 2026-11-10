@@ -28,19 +28,22 @@ Two themes designed together. Day is parchment and ink; night is dark vellum by 
 | `--page` | `#F2E9D5` | `#1B140E` | Book pages, cards, panels |
 | `--bar` | `#F2E9D5` | `#140F0A` | Pinned app bar |
 | `--ink` | `#241A11` | `#EEE2CA` | Primary text |
-| `--muted` | `#5A4A39` | `#BCAB8E` | Secondary text, nav links |
+| `--muted` | `#4D3E2F` | `#BCAB8E` | Secondary text, nav links |
 | `--rule` | `#C9B693` | `#43331F` | Hairlines, borders, dividers |
 | `--frame` | `#8A6C45` | `#7C5D37` | Decorative frames (plate, drop cap) |
 | `--accent` | `#2E5B44` | `#E3A64F` | Primary action, drop cap, small caps labels |
 | `--accent-ink` | `#F2E9D5` | `#170F08` | Text on accent |
+| `--correct` | `#33591F` | `#A9C77E` | Quiz state: right answer (always with an icon and a word) |
+| `--incorrect` | `#8E2A2A` | `#EC9A88` | Quiz state: wrong pick (always with an icon and a word) |
+| `--mark` | `rgb(46 91 68 / .17)` | `rgb(227 166 79 / .24)` | Highlight behind a cited sentence |
 | `--surround` | `rgb(34 22 12 / .6)` | `rgb(6 4 3 / .62)` | Dim over the scene around the book |
 | `--on-surround` | `#F2E9D5` | `#EEE2CA` | Text on the dimmed scene |
 | `--page-shade` | `rgb(92 64 34 / .16)` | `rgb(0 0 0 / .35)` | Gutter and page-edge shading |
 
 Rules:
-- Text pairs meet WCAG AA: ink and muted on page/bg are at least 6:1 in both themes; accent-ink on accent at least 6:1.
+- Text pairs meet WCAG AA, measured against the worst case (paper grain plus gutter shade): muted is at least 5:1 on page and bg in both themes; accent-ink on accent at least 6:1.
 - Never use accent for large fills or backgrounds. One primary button per view.
-- Semantic colours for quiz states (correct / incorrect / needs review) are separate from the accent and must also carry an icon or word; define them when the Quiz screen is built, keeping the same muted, ink-like saturation.
+- Quiz states use `--correct` / `--incorrect`, separate from the accent, and always carry an icon and a word.
 - Paper grain: `--paper` is an SVG noise tile layered under page backgrounds (`background: var(--paper), var(--page)`). Use it on pages and large sections, not on small controls.
 
 Tailwind exposes the same tokens as utilities (`bg-page`, `text-ink`, `border-rule`, `text-accent`, `font-display`, ...) through `@theme inline` in `src/index.css`, so components can use either.
@@ -62,20 +65,20 @@ Scale (desktop → phone, via `clamp`):
 - Keep running text near 65 characters; never below 15px for reading text.
 
 Book conventions we use (each must encode something true):
-- **Drop cap** on the first letter of a page-level headline, in accent, inside a double frame (`.drop`). One per screen.
+- **Drop cap** on the first letter of the first body paragraph under a page-level headline (`::first-letter`), in accent, inside a double rule. Never on the headline itself. One per screen.
 - **Running head** in small caps at the top of a plate or page ("Plate the First").
 - **Folios** (— i —, — ii —) at the foot of book pages on desktop only.
 - **Roman numerals** only for real sequences (the three steps of how it works, chapters).
-- **Italic display** for secondary links and captions ("or see a sample quiz").
+- **Italic display** for secondary links, captions and citations ("p. 142").
 
 ## 4. Layout
 
 - **Pinned app bar** (`.bar`), always at the top: brand · nav · theme toggle · primary "Upload a PDF". 64px tall (56px under 900px). Links collapse in stages (Evaluation under 1100px, How it works under 900px); on phones the upload button becomes icon-only with an accessible name.
 - **Content width:** 1320px max for the book spread, 1120px for content sections. Side gutter `max(16px, env(safe-area-inset-*))`.
 - **The book spread** (landing hero): a two-column grid (left page 1fr, right page 1.08fr) with a shaded gutter. Left page holds the copy; right page is paper with a transparent window (the plate) cut by CSS mask, framed by a double rule. The scene shows through the plate and, dimmed by `--surround`, around the book.
-- **Phones (≤ 900px):** the plate moves above a single page (4:3, at most 46% of the viewport height); folios, running head and caption hide; the primary button goes full width; three-step lists stack.
+- **Phones (≤ 900px):** the spread stacks: copy page first (headline, body, CTA), then the plate window with the sample-question tab on the paper below it; folios, running head and caption hide; the primary button goes full width; three-step lists stack.
 - Spacing follows a 4/8px rhythm; section padding uses `clamp(48px, 8vw, 104px)`.
-- **Product at a glance:** every landing-type hero ends with the three-step flow "Your PDF goes in › A quiz comes out › Each answer cites its page". If a screen introduces the product, it must say what it does without scrolling.
+- **Product at a glance:** the hero plate carries a "Try a sample question" tab that opens a real, interactive question with its citation, so the painting stays clean until asked. The app bar hides its Upload button while the hero's is on screen.
 
 ## 5. Components (current)
 
@@ -84,9 +87,9 @@ Book conventions we use (each must encode something true):
 | Button, primary (`.btn-primary`) | Accent fill, 2px radius, 44px min height (52px `.btn-lg` in heroes), EB Garamond 500, upload icon leading. Hover brightens; press nudges 1px. |
 | Text link (`.text-link`) | IM Fell italic with a rule-coloured underline that turns accent on hover. Used for secondary actions instead of a second button. |
 | Icon button (`.icon-btn`) | 44px circle, rule border; always has `aria-label`. Theme toggle shows the icon of the mode you will switch to. |
-| Flow list (`.flow`) | Three circular line-icon badges with short labels and chevron separators. |
+| Sample question (`.sample`) | A loose page over the plate: question, four options, verdict, citation (`.cite`) that swaps the options for the source passage with the supporting sentence marked. Opened from `.sample-trigger`; Esc or × closes and returns focus. |
 | Plate (`.page-r` + `.plate-frame`) | Framed window onto the scene, with running head, caption, and a Pause/Play control. |
-| Section list (`.how`) | Roman numeral, display H3, muted paragraph, top rule. |
+| Section list (`.how`) | HTML/CSS paper artifact (`.art`), then Roman numeral, display H3, muted paragraph. |
 
 Icons: one line set (`src/components/icons.tsx`), 1.6px stroke, round caps, 18px in controls. Decorative icons are `aria-hidden`; the control carries the name.
 
@@ -102,7 +105,7 @@ Code: `frontend/src/scene/stacksScene.ts` (three.js) and `watercolorShader.ts`.
 - **Watercolour pass:** simplified Kuwahara (flat washes), pigment pooling at edges, tonal banding, granulation, wet-in-wet blooms and paper fibre. Do not add outlines, glyph/ASCII effects or dithering; the look is painted, not technical.
 - **Framing:** the canvas covers the hero; the camera offsets its view and fits its lens to the plate, so any screen size shows roughly three shelves.
 - **Lighting units:** three r155+ uses physical light units. Legacy-tuned values are scaled by `AMBIENT_SCALE` (π) and `PUNCTUAL_SCALE` (23) at the top of `stacksScene.ts`; tune there, not per light.
-- **Performance and access:** three.js is loaded lazily after the text paints; rendering pauses offscreen and in hidden tabs; the render target is 0.75× device pixels; `prefers-reduced-motion` starts it paused; the reader can always Pause/Play. If WebGL fails, a painted-stripe fallback shows. Planned: a looping video of each mode as the no-WebGL fallback.
+- **Performance and access:** three.js is loaded lazily after the text paints; the rAF loop fully stops offscreen, in hidden tabs and while paused (it restarts on demand); devicePixelRatio is capped at 2; the render target is 0.75× device pixels; `prefers-reduced-motion` starts it paused; the reader can always Pause/Play. If WebGL fails, a painted-stripe fallback shows. Planned: a looping video of each mode as the no-WebGL fallback.
 
 ## 7. Mascot: the Paper Wyrm
 

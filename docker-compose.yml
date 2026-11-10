@@ -1,0 +1,26 @@
+# Local development services. Start with:  docker compose up -d
+# Postgres 17 with the pgvector extension (see docs/ARCHITECTURE.md, Data Model).
+# The backend and frontend run on the host with hot reload; an app service will be added
+# here once the backend exists.
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bookwyrm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-bookwyrm}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

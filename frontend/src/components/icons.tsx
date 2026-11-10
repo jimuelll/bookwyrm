@@ -38,3 +38,12 @@ export const PauseIcon = (p: P) => (
 export const PlayIcon = (p: P) => (
   <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden {...p}><path d="M7 5v14l12-7z" /></svg>
 )
+export const CheckIcon = (p: P) => (
+  <svg viewBox="0 0 24 24" {...base} strokeWidth={2} {...p}><path d="M5 12.5l4.5 4.5L19 7" /></svg>
+)
+export const CrossIcon = (p: P) => (
+  <svg viewBox="0 0 24 24" {...base} strokeWidth={2} {...p}><path d="M6 6l12 12M18 6 6 18" /></svg>
+)
+export const ArrowRightIcon = (p: P) => (
+  <svg viewBox="0 0 24 24" {...base} {...p}><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+)

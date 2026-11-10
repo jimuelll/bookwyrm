@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b"
   },
   "dependencies": {
     "@fontsource/eb-garamond": "^5.3.0",
@@ -20,6 +23,9 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.3.5",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.9",
     "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -29,9 +35,11 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^17.13.0",
+    "jsdom": "^31.0.0",
     "tailwindcss": "^4.3.5",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.1",
-    "vite": "^8.3.6"
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
   }
 }

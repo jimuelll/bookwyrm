@@ -9,11 +9,14 @@
   --bar: #f2e9d5;
   --page-shade: rgb(92 64 34 / 0.16);
   --ink: #241a11;
-  --muted: #5a4a39;
+  --muted: #4d3e2f; /* ≥5:1 on page and bg even under grain + gutter shade */
   --rule: #c9b693;
   --frame: #8a6c45;
   --accent: #2e5b44;
   --accent-ink: #f2e9d5;
+  --correct: #33591f; /* quiz states: always paired with an icon and a word */
+  --incorrect: #8e2a2a;
+  --mark: rgb(46 91 68 / 0.17); /* highlight behind a cited sentence */
   --surround: rgb(34 22 12 / 0.6);
   --on-surround: #f2e9d5;
   color-scheme: light;
@@ -30,6 +33,9 @@
   --frame: #7c5d37;
   --accent: #e3a64f;
   --accent-ink: #170f08;
+  --correct: #a9c77e;
+  --incorrect: #ec9a88;
+  --mark: rgb(227 166 79 / 0.24);
   --surround: rgb(6 4 3 / 0.62);
   --on-surround: #eee2ca;
   color-scheme: dark;

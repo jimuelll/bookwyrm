@@ -4,10 +4,12 @@ import type { Theme } from '../../hooks/useTheme'
 interface Props {
   theme: Theme
   onToggleTheme: () => void
+  /** False while the hero's own Upload button is on screen, so there is one primary action in view. */
+  showCta: boolean
 }
 
 /** Pinned app bar: always reachable brand, nav, theme switch and the primary action. */
-export function TopBar({ theme, onToggleTheme }: Props) {
+export function TopBar({ theme, onToggleTheme, showCta }: Props) {
   const dark = theme === 'dark'
   return (
     <header className="bar">
@@ -29,7 +31,13 @@ export function TopBar({ theme, onToggleTheme }: Props) {
         >
           {dark ? <SunIcon /> : <MoonIcon />}
         </button>
-        <a className="btn btn-primary" href="#" aria-label="Upload a PDF">
+        <a
+          className={`btn btn-primary bar-cta${showCta ? '' : ' is-hidden'}`}
+          href="#"
+          aria-label="Upload a PDF"
+          aria-hidden={showCta ? undefined : true}
+          tabIndex={showCta ? undefined : -1}
+        >
           <UploadIcon />
           <span className="label">Upload a PDF</span>
         </a>

@@ -23,9 +23,25 @@ Bookwyrm keeps every question grounded in your document and shows its source, so
 
 Early development. The landing page is built in `frontend/`; the backend (ingestion, retrieval, quiz generation) is next.
 
+## Run it locally
+
+Requires Node 22+ (and, once the backend lands, Docker and Python 3.12).
+
+```bash
+cp .env.example .env          # then fill in the values
+docker compose up -d          # Postgres + pgvector
+cd frontend && npm install && npm run dev
+```
+
+Checks (the same ones CI runs on every push and pull request):
+
+```bash
+cd frontend
+npm run lint && npm run typecheck && npm test && npm run build
+```
+
 ## Docs
 
-- [PRD.md](./PRD.md): what Bookwyrm does and why
-- [ARCHITECTURE.md](./ARCHITECTURE.md): how it is built
-- [DESIGN.md](./DESIGN.md): how it looks and feels
-# bookwyrm
+- [PRD](./docs/PRD.md): what Bookwyrm does and why
+- [Architecture](./docs/ARCHITECTURE.md): how it is built
+- [Design](./docs/DESIGN.md): how it looks and feels

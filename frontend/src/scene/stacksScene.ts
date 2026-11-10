@@ -66,6 +66,7 @@ export class StacksScene {
   private t = 6
   private last = performance.now()
   private raf = 0
+  private disposed = false
   private mouse = { x: 0, y: 0, tx: 0, ty: 0 }
 
   // animated parts
@@ -120,7 +121,7 @@ export class StacksScene {
     this.applyTheme()
     this.bindEvents()
     this.resize()
-    this.raf = requestAnimationFrame(this.frame)
+    this.kick()
   }
 
   setDark(dark: boolean) {
@@ -132,10 +133,13 @@ export class StacksScene {
   setRunning(running: boolean) {
     this.running = running
     this.needsFrame = true
+    this.kick()
   }
 
   dispose() {
+    this.disposed = true
     cancelAnimationFrame(this.raf)
+    this.raf = 0
     this.disposers.forEach((d) => d())
     this.scene.traverse((o) => {
       const m = o as THREE.Mesh
@@ -459,6 +463,7 @@ export class StacksScene {
     this.eyeMat.emissiveIntensity = dark ? 5 : 3.2
     this.post.uniforms.uDark.value = dark ? 1 : 0
     this.needsFrame = true
+    this.kick()
   }
 
   // ---------------------------------------------------------------- sizing & events
@@ -480,6 +485,7 @@ export class StacksScene {
     this.dustMat.size = 0.11 * Math.min(1, (ph / H) * 1.3)
     camera.updateProjectionMatrix()
     this.needsFrame = true
+    this.kick()
   }
 
   private bindEvents() {
@@ -490,13 +496,18 @@ export class StacksScene {
       this.mouse.ty = ((e.clientY - r.top) / r.height) * 2 - 1
     }
     const onLeave = () => { this.mouse.tx = 0; this.mouse.ty = 0 }
-    const onVis = () => { this.last = performance.now() }
+    const onVis = () => { this.last = performance.now(); this.kick() }
     host.addEventListener('pointermove', onMove)
     host.addEventListener('pointerleave', onLeave)
     document.addEventListener('visibilitychange', onVis)
     window.addEventListener('resize', this.resize)
     const ro = new ResizeObserver(() => this.resize()); ro.observe(host); ro.observe(this.plate)
-    const io = new IntersectionObserver((es) => { this.visible = es[0].isIntersecting }); io.observe(host)
+    const io = new IntersectionObserver((es) => {
+      this.visible = es[0].isIntersecting
+      this.last = performance.now()
+      this.kick()
+    })
+    io.observe(host)
     this.disposers.push(
       () => host.removeEventListener('pointermove', onMove),
       () => host.removeEventListener('pointerleave', onLeave),
@@ -508,11 +519,23 @@ export class StacksScene {
   }
 
   // ---------------------------------------------------------------- loop
-  private frame = (now: number) => {
+  /** Whether a frame is worth drawing: on screen, tab visible, and either playing or stale. */
+  private get shouldRender() {
+    return this.visible && !document.hidden && (this.running || this.needsFrame)
+  }
+
+  /** Start the loop if it is stopped and there is something to draw. The loop stops itself
+   *  (no rAF pending at all) when the canvas is off-screen, the tab is hidden, or it is paused. */
+  private kick() {
+    if (this.raf || this.disposed || !this.shouldRender) return
+    this.last = performance.now()
     this.raf = requestAnimationFrame(this.frame)
+  }
+
+  private frame = (now: number) => {
+    this.raf = 0
+    if (this.disposed || !this.shouldRender) return
     const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now
-    if (!this.visible || document.hidden) return
-    if (!this.running && !this.needsFrame) return
     if (this.running) this.t += dt
     const { t, mouse, camera } = this
     mouse.x += (mouse.tx - mouse.x) * 0.04; mouse.y += (mouse.ty - mouse.y) * 0.04
@@ -541,5 +564,6 @@ export class StacksScene {
     this.renderer.setRenderTarget(this.rt); this.renderer.render(this.scene, camera)
     this.renderer.setRenderTarget(null); this.renderer.render(this.postScene, this.postCam)
     this.needsFrame = false
+    if (this.running) this.raf = requestAnimationFrame(this.frame)
   }
 }

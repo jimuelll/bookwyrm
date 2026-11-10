@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend (lint, types, tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  backend:
+    name: Backend (lint, types, tests)
+    runs-on: ubuntu-latest
+    # Skipped until the backend project exists (backend/pyproject.toml).
+    if: ${{ hashFiles('backend/pyproject.toml') != '' }}
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      db:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: bookwyrm
+          POSTGRES_PASSWORD: bookwyrm
+          POSTGRES_DB: bookwyrm_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U bookwyrm -d bookwyrm_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://bookwyrm:bookwyrm@localhost:5432/bookwyrm_test
+      LLM_PROVIDER: fake
+      EMBEDDING_PROVIDER: fake
+      SECRET_KEY: ci-only-not-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+      - run: uv sync --all-extras --dev
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy app
+      - run: uv run pytest
