@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Bookwyrm turns your PDFs into quizzes and shows the page behind every answer." />
+    <meta name="theme-color" content="#f2e9d5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#140f0a" media="(prefers-color-scheme: dark)" />
+    <title>Bookwyrm · Quizzes from your PDFs</title>
+    <script>
+      // Resolve day/night before first paint so there is no flash of the wrong theme.
+      (function () {
+        var t = null;
+        try { t = localStorage.getItem('bookwyrm-theme'); } catch (e) {}
+        if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

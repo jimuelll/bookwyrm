@@ -1,0 +1,36 @@
+@import 'tailwindcss';
+@import './styles/tokens.css';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* Expose the runtime tokens as Tailwind utilities: bg-page, text-ink, border-rule, font-display, ... */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-page: var(--page);
+  --color-bar: var(--bar);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-rule: var(--rule);
+  --color-frame: var(--frame);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --font-display: var(--font-display);
+  --font-caps: var(--font-caps);
+  --font-body: var(--font-body);
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 18px;
+    line-height: 1.6;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  a { color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+}

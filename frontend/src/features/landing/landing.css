@@ -1,0 +1,149 @@
+/* Landing page: pinned app bar, then an open storybook spread over the painted library.
+   Left page = what Bookwyrm does; right page = a framed window (plate) onto the live scene. */
+
+/* ---------- pinned app bar ---------- */
+.bar {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  background: var(--bar); border-bottom: 1px solid var(--rule);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.bar::before { /* paints the safe-area band above the sticky bar */
+  content: ''; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); background: var(--bar);
+}
+.bar-in { max-width: 1320px; height: var(--bar-h); margin-inline: auto; display: flex; align-items: center; gap: 12px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; margin-right: auto; text-decoration: none; font-family: var(--font-caps); font-size: 23px; letter-spacing: .04em; }
+.brand svg { width: 26px; height: 26px; color: var(--accent); }
+.bar nav { display: flex; align-items: center; gap: 2px; font-size: 17px; }
+.bar nav a { text-decoration: none; color: var(--muted); padding: 10px 12px; border-radius: 2px; transition: color .2s; }
+.bar nav a:hover { color: var(--ink); }
+.icon-btn { width: 44px; height: 44px; flex: none; display: inline-grid; place-items: center; border: 1px solid var(--rule); border-radius: 50%; background: transparent; color: var(--ink); cursor: pointer; transition: border-color .2s; }
+.icon-btn:hover { border-color: var(--accent); }
+.icon-btn svg { width: 18px; height: 18px; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 44px; padding: 0 20px; border-radius: 2px; text-decoration: none; font-family: var(--font-body); font-size: 17px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: filter .2s, transform .15s; }
+.btn:active { transform: translateY(1px); }
+.btn svg { width: 18px; height: 18px; flex: none; }
+.btn-primary { background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent); }
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-lg { min-height: 52px; padding: 0 26px; font-size: 18px; }
+
+/* ---------- hero ---------- */
+.hero {
+  position: relative; overflow: hidden; isolation: isolate;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  padding-block: clamp(14px, 2.6vh, 28px) 14px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.hero-scene, .hero-fallback { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -2; display: block; }
+.hero-fallback {
+  background:
+    radial-gradient(40% 50% at 70% 45%, rgb(227 166 79 / .35), transparent 70%),
+    repeating-linear-gradient(90deg, #5a3219 0 14px, #2a160c 14px 22px, #7a5028 22px 31px, #1e120a 31px 36px);
+}
+
+.book {
+  position: relative; width: min(1320px, 100%);
+  min-height: clamp(500px, calc(100svh - var(--bar-h) - 110px), 720px);
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
+  border-radius: 3px;
+  box-shadow: 0 0 0 200vmax var(--surround), 0 40px 90px -20px rgb(0 0 0 / .7);
+}
+.book::after { /* the gutter */
+  content: ''; position: absolute; top: 0; bottom: 0; left: calc(48.05% - 30px); width: 60px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--page-shade) 45%, rgb(0 0 0 / .28) 50%, var(--page-shade) 55%, transparent);
+}
+
+.page { position: relative; min-width: 0; }
+.page-l {
+  background: var(--paper), linear-gradient(90deg, transparent 80%, var(--page-shade)), var(--page);
+  border-radius: 3px 0 0 3px;
+  padding: clamp(28px, 4vw, 56px) clamp(24px, 4.2vw, 64px) 52px;
+  display: flex; flex-direction: column; justify-content: center;
+}
+.page-r { min-height: 320px; }
+.page-r-paper { /* page paper with a transparent window cut out for the plate */
+  position: absolute; inset: 0; border-radius: 0 3px 3px 0;
+  background: var(--paper), linear-gradient(270deg, transparent 85%, var(--page-shade)), var(--page);
+  padding: 40px 40px 76px 44px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+.plate-frame {
+  position: absolute; inset: 40px 40px 76px 44px; pointer-events: none;
+  border: 1px solid var(--frame); outline: 1px solid var(--frame); outline-offset: 5px;
+  box-shadow: inset 0 0 40px rgb(20 12 6 / .35);
+}
+.running { position: absolute; top: 11px; left: 0; right: 0; text-align: center; font-family: var(--font-caps); font-size: 14px; letter-spacing: .08em; color: var(--muted); }
+.caption { position: absolute; left: 44px; right: 120px; bottom: 26px; margin: 0; font-family: var(--font-display); font-style: italic; font-size: 16px; line-height: 1.35; color: var(--muted); }
+.folio { position: absolute; bottom: 12px; left: 0; right: 0; text-align: center; font-family: var(--font-display); font-style: italic; font-size: 14px; color: var(--muted); }
+
+.copy { display: flex; flex-direction: column; gap: 24px; max-width: 34rem; }
+.copy h1 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: clamp(34px, 3.9vw, 58px); line-height: 1.1; letter-spacing: -.005em; text-wrap: balance; }
+.drop {
+  float: left; display: grid; place-items: center; width: 1.12em; height: 1.18em; padding-bottom: .16em; margin: .1em .16em 0 0;
+  font-family: var(--font-display); font-size: 2.05em; line-height: 1; color: var(--accent);
+  border: 1px solid var(--frame); outline: 1px solid var(--frame); outline-offset: 3px;
+}
+.lede { margin: 0; font-size: clamp(17px, 1.4vw, 20px); line-height: 1.6; color: var(--muted); max-width: 31rem; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; }
+.text-link { min-height: 44px; display: inline-flex; align-items: center; font-family: var(--font-display); font-style: italic; font-size: 19px; text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 5px; transition: text-decoration-color .2s; }
+.text-link:hover { text-decoration-color: var(--accent); }
+
+/* the product at a glance: PDF -> quiz -> cited page */
+.flow { list-style: none; margin: 4px 0 0; padding: 16px 0 0; border-top: 1px solid var(--rule); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.flow li { position: relative; display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 16px; line-height: 1.3; }
+.flow li + li::before { content: ''; position: absolute; left: -11px; top: 50%; width: 7px; height: 7px; border-top: 1px solid var(--frame); border-right: 1px solid var(--frame); transform: translateY(-50%) rotate(45deg); }
+.flow .ic { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border: 1px solid var(--rule); border-radius: 50%; color: var(--accent); }
+.flow .ic svg { width: 18px; height: 18px; }
+
+.pause { position: absolute; right: 36px; bottom: 20px; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 8px; background: transparent; border: 0; color: var(--muted); font-family: var(--font-caps); font-size: 14px; letter-spacing: .06em; cursor: pointer; }
+.pause:hover { color: var(--ink); }
+.pause svg { width: 13px; height: 13px; }
+
+.scroll-hint { position: relative; z-index: 1; display: inline-flex; flex-direction: column; align-items: center; min-height: 44px; text-decoration: none; color: var(--on-surround); font-family: var(--font-caps); font-size: 16px; letter-spacing: .08em; }
+.scroll-hint svg { width: 18px; height: 18px; animation: nudge 2.4s ease-in-out infinite; }
+@keyframes nudge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
+
+/* ---------- how it works ---------- */
+.how {
+  scroll-margin-top: var(--bar-h);
+  padding-block: clamp(48px, 8vw, 104px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: var(--paper), var(--bg);
+}
+.how-in { max-width: 1120px; margin-inline: auto; display: flex; flex-direction: column; gap: 36px; }
+.how h2 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: clamp(30px, 3.4vw, 46px); line-height: 1.1; text-align: center; text-wrap: balance; }
+.how ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(20px, 3vw, 44px); }
+.how li { display: flex; flex-direction: column; gap: 8px; padding-top: 18px; border-top: 1px solid var(--rule); min-width: 0; }
+.how .num { font-family: var(--font-caps); font-size: 15px; letter-spacing: .1em; color: var(--accent); }
+.how h3 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 26px; line-height: 1.2; }
+.how p { margin: 0; color: var(--muted); }
+
+/* ---------- responsive ---------- */
+@media (max-width: 1100px) { .bar nav a.hide-md { display: none; } }
+@media (max-width: 900px) {
+  .brand { font-size: 20px; }
+  .bar nav a.hide-sm { display: none; }
+  .bar .btn-primary .label { display: none; }
+  .bar .btn-primary { width: 44px; padding: 0; }
+  .hero { padding-block: 12px 10px; }
+  .book { min-height: 0; grid-template-columns: 1fr; }
+  .book::after, .running, .folio { display: none; }
+  .page-r { order: -1; min-height: 0; aspect-ratio: 4 / 3; max-height: 46svh; width: 100%; }
+  .page-r-paper { border-radius: 3px 3px 0 0; padding: 12px; }
+  .plate-frame { inset: 12px; outline-offset: 3px; }
+  .caption { display: none; }
+  .pause { right: 16px; bottom: 14px; min-height: 36px; padding: 0 12px; background: var(--page); border: 1px solid var(--rule); border-radius: 18px; }
+  .page-l { border-radius: 0 0 3px 3px; padding: 22px 20px 26px; }
+  .copy { gap: 18px; }
+  .drop { font-size: 1.85em; }
+  .flow { grid-template-columns: 1fr; gap: 10px; padding-top: 14px; }
+  .flow li + li::before { display: none; }
+  .actions .btn-lg { flex: 1 1 100%; }
+  .how ol { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scroll-hint svg { animation: none; }
+  .btn, .icon-btn, .bar nav a, .text-link { transition: none; }
+}

@@ -1,0 +1,51 @@
+# Local tooling (kept out of the repo on purpose)
+.claude
+.impeccable
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+*.local
+
+# Node / frontend
+node_modules/
+dist/
+dist-ssr/
+*.tsbuildinfo
+.vite/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python / backend
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+
+# Uploaded PDFs and local data
+uploads/
+storage/
+*.db
+*.sqlite3
+
+# OS / editors
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+logs/
+*.log
