@@ -1,0 +1,17 @@
+# Response headers for the deployed site (Cloudflare reads this file from the build output).
+
+# Every page
+/*
+  # don't let other sites put Bookwyrm (and its login form) inside a frame: stops clickjacking
+  X-Frame-Options: DENY
+  # browsers must trust the declared file type instead of guessing it
+  X-Content-Type-Options: nosniff
+  # other sites only learn our domain from links, never full URLs (which may carry ?code=... after login)
+  Referrer-Policy: strict-origin-when-cross-origin
+  # features the site never uses
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+
+# Vite gives built files a content hash in their name (index-a1b2c3.js), so a changed file gets a
+# new name and these can be cached for a year. index.html itself is never cached this way.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

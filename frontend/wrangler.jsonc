@@ -1,0 +1,14 @@
+// Cloudflare Workers config for the frontend: a static site, no server code.
+// Cloudflare builds it (npm run build) and serves the files in ./dist from its edge network.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "bookwyrm",
+  // which version of the Workers runtime behaviour to use; bump it deliberately, not automatically
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./dist",
+    // A single-page app has one real file, index.html; React Router decides what /about or
+    // /auth/callback shows. So any path that isn't a real file gets index.html instead of a 404.
+    "not_found_handling": "single-page-application"
+  }
+}
