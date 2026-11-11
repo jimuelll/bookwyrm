@@ -105,7 +105,7 @@ config (topic, pages, difficulty, count, types)
    → generate candidates (over-generate ~1.5x)
    → validate schema → check citation exists
    → verify (LLM-as-judge) → de-duplicate
-   → pick final N → persist quiz
+   → pick final N → persist quiz (the set is fixed from here on)
 ```
 
 **Generation prompt rules**
@@ -146,18 +146,25 @@ At attempt time, a grading call compares the user's answer to the reference answ
 ### 4.4 Modes, Sharing and Expiry
 
 - **Mode** is stored on the quiz (`review` | `quiz`). Starting an attempt on a `quiz`-mode quiz fails with `409 Conflict` if the user already has one; a unique index on `(quiz_id, user_id)` for quiz-mode attempts enforces it in the database too.
+- **Fixed set, shuffled per attempt:** questions are stored once per quiz. Starting an attempt stores a random `question_order` and per-question `option_order` on the attempt, so a retake (or another taker) sees a new order. Grading maps the shown order back to the stored answer, so answers are compared by option ID, never by position.
 - **Share link:** `/s/{share_token}` where the token is 128+ bits of randomness (not the quiz ID), so links can't be guessed. Resolving a token requires an authenticated user and a quiz with `expires_at > now()`; otherwise `401` (log in) or `410 Gone` (expired).
 - **Expiry:** `expires_at = created_at + lifetime`, lifetime capped at 7 days by the API and by a `CHECK` constraint. Every read also checks `expires_at`, so an expired quiz is unreachable even before cleanup runs.
-- **Cleanup job:** a scheduled task (every ~15 minutes) hard-deletes expired quizzes; questions, attempts and answers cascade.
+- **Cleanup job:** a scheduled task (every ~15 minutes) hard-deletes expired quizzes; questions, attempts and answers cascade. The document is untouched, and nothing is lost from its stats because they were already updated at submit time (4.5).
 - **Results / weak topics:** computed per attempt by grouping answers by question `topic` and source page; the lowest-accuracy topics are listed with their pages as "study more".
-- **Leaderboard:** a query over `attempts` for one quiz-mode quiz, ordered by `score DESC` (tie-break: open question in the PRD). No global leaderboard table.
+- **Leaderboard:** a query over `attempts` for one quiz-mode quiz, ranked with `RANK() OVER (ORDER BY score DESC)` so equal scores share a rank (1, 1, 3). The creator's own attempt is included. No global leaderboard table.
 
-### 4.5 Progress and Spaced Repetition
+### 4.5 PDF Stats, History and Topic Review Quizzes
 
-- Every answer is stored with `is_correct`, `topic` and `question_id`.
-- **Weak topics:** aggregate accuracy by `topic` (and `heading_path`) across attempts; rank by lowest accuracy with a minimum-sample threshold.
-- **Targeted quiz:** generate from chunks tied to weak topics.
-- **SM-2 scheduling:** a `review_schedule` row per user and question holds `interval`, `ease` and `due_at`; a daily queue is `due_at <= now`.
+- Every answer is stored with `is_correct`, `topic` and `question_id` (until its quiz expires).
+- **Stats are folded in at submit time.** When an attempt is submitted, its per-topic correct/total counts are added to `topic_stats` and its score to `score_history`, all keyed by `stats_id`. Because stats never read from `answers` later, expiring quizzes and deleting attempts loses nothing.
+- **Weak / strong topics:** accuracy per topic from `topic_stats`, with a minimum-sample threshold; lowest are weak, highest are strong.
+- **Passing confidence rate:** from `score_history`, the last 3 full-quiz scores (0-100) newest first, weighted 3, 2, 1: `Σ wᵢ·scoreᵢ / Σ wᵢ` over the attempts that exist. Returned with the attempt count so the UI can show "based on 3 attempts".
+- **Shared takers** get their own `document_stats` row for the owner's document (`user_id` = the taker). Their stats are updated the same way as the owner's.
+- **History:** `document_stats.document_id` is `ON DELETE SET NULL` and the row keeps a `title` snapshot. Deleting a document cascades to chunks, file and quizzes; its stats row stays with `document_id = NULL` and is shown in History. Deleting a history entry deletes the stats row and its children.
+- **Topic review quizzes:** `POST /documents/{id}/topic-quizzes` with a `topic` (and the `source_quiz_id` it came from, if any) runs the 4.3 pipeline restricted to that topic's `heading_path` / page range, about 5 questions, `kind = 'topic'`, private (`share_token` NULL). Nothing is scheduled.
+  - The first submitted attempt on a topic quiz updates `topic_stats`; later attempts are graded and shown but write no stats.
+  - Topic quizzes never write to `score_history`, so they never affect the passing confidence rate.
+  - The results page offers "retake this topic quiz" (new attempt, new shuffle) and "retake the review quiz" (only if `source_quiz_id` still exists and hasn't expired).
 
 ### 4.6 Chat with the PDF
 
@@ -176,19 +183,29 @@ chunks(id, document_id, page_start, page_end, heading_path, text,
        token_count, embedding vector(N), embedding_model, tsv tsvector)
 
 quizzes(id, user_id, document_id, config jsonb, status,
-        mode ('review' | 'quiz'), share_token UNIQUE, expires_at,
+        mode ('review' | 'quiz'), kind ('full' | 'topic'),
+        topic NULL, source_quiz_id NULL REFERENCES quizzes ON DELETE SET NULL,
+        share_token UNIQUE, expires_at,
         created_at)   -- CHECK (expires_at <= created_at + interval '7 days')
 
 questions(id, quiz_id, type, prompt, options jsonb, answer, explanation,
           topic, difficulty, source_chunk_id, evidence,
           verified bool, verifier_notes)
 
-attempts(id, quiz_id, user_id, score, started_at, finished_at)
+attempts(id, quiz_id, user_id, score, question_order jsonb, option_order jsonb,
+         started_at, finished_at)   -- orders shuffled per attempt
 
 answers(id, attempt_id, question_id, response, is_correct, grade,
         feedback, answered_at)
 
-review_schedule(id, user_id, question_id, due_at, interval_days, ease, reps)
+
+document_stats(id, user_id, document_id NULL REFERENCES documents ON DELETE SET NULL,
+               title, created_at, archived_at NULL)
+      -- document_id NULL = the PDF was deleted; the row is a History entry
+
+topic_stats(stats_id, topic, heading_path, page_start, page_end, correct, total, updated_at)
+
+score_history(id, stats_id, mode ('review' | 'quiz'), score, taken_at)   -- full quizzes only
 
 jobs(id, document_id, type, status, step, attempts, last_error, updated_at)
 ```
@@ -197,12 +214,13 @@ jobs(id, document_id, type, status, step, attempts, last_error, updated_at)
 - `chunks`: HNSW on `embedding` (cosine), GIN on `tsv`, B-tree on `(document_id, page_start)`.
 - `documents`: unique `(user_id, content_hash)`.
 - `answers`: `(attempt_id)`, and `(question_id)` for topic analytics.
-- `review_schedule`: `(user_id, due_at)`.
 - `quizzes`: unique `share_token`; B-tree on `expires_at` for the cleanup job.
 - `attempts`: unique `(quiz_id, user_id)` where the quiz is in quiz mode (one attempt only); `(quiz_id, score DESC)` for the leaderboard.
 - `users`: unique `email`; unique `google_sub`.
+- `document_stats`: unique `(user_id, document_id)`; `(user_id) WHERE document_id IS NULL` for History.
+- `topic_stats`: primary key `(stats_id, topic)`.
 
-**Multi-tenancy:** every user-owned table carries `user_id` (directly or via a parent) and every query filters by it. The one exception is a shared quiz: any authenticated user holding a valid, unexpired `share_token` can read its questions and leaderboard and create their own attempts; they never get access to the document or its chunks. Consider Postgres row-level security as a hardening step.
+**Multi-tenancy:** every user-owned table carries `user_id` (directly or via a parent) and every query filters by it. The one exception is a shared quiz: any authenticated user holding a valid, unexpired `share_token` can read its questions and leaderboard and create their own attempts; in a **review-mode** quiz they can also read the original PDF file (read-only stream, `GET /s/{share_token}/document`) while the token is valid. Quiz-mode tokens never grant the document. No share ever exposes chunks or embeddings. Consider Postgres row-level security as a hardening step.
 
 ## 6. API Surface
 
@@ -213,16 +231,18 @@ jobs(id, document_id, type, status, step, attempts, last_error, updated_at)
 | GET | `/auth/me` | Current user (frontend checks login state) |
 | POST | `/documents` | Upload PDF (starts ingestion job) |
 | GET | `/documents`, `/documents/{id}` | List and status/progress |
-| DELETE | `/documents/{id}` | Delete document, chunks, file |
+| DELETE | `/documents/{id}` | Delete document, chunks, file and quizzes; its stats move to History |
 | POST | `/documents/{id}/quizzes` | Generate quiz from config (includes `mode` and `lifetime_hours` ≤ 168) |
 | GET | `/s/{share_token}` | Resolve a share link to its quiz (auth required; `410` if expired) |
+| GET | `/s/{share_token}/document` | Read-only PDF for review-mode shares (`403` for quiz mode, `410` if expired) |
 | GET | `/quizzes/{id}/leaderboard` | Per-quiz leaderboard (quiz mode only) |
 | GET | `/quizzes/{id}` | Fetch quiz with questions (no answers until submitted) |
 | POST | `/quizzes/{id}/attempts` | Start attempt |
 | POST | `/attempts/{id}/submit` | Submit answers, grade, return results |
-| GET | `/progress/topics` | Weak-topic analytics |
-| POST | `/progress/targeted-quiz` | Quiz from weak topics |
-| GET | `/reviews/due` | Spaced-repetition queue |
+| GET | `/documents/{id}/stats` | A PDF's weak/strong topics, passing confidence and score history |
+| GET | `/history` | Stats of deleted PDFs (title + stats only) |
+| DELETE | `/history/{stats_id}` | Remove a history entry |
+| POST | `/documents/{id}/topic-quizzes` | One-off short quiz on a weak topic |
 | POST | `/documents/{id}/chat` | RAG Q&A (SSE stream) |
 | GET | `/quizzes/{id}/export?format=anki\|pdf` | Export |
 
@@ -271,11 +291,11 @@ Use an LLM judge to scale, but validate it against the human labels on a sample 
 - **Uploads:** type and size validation, store outside the web root, randomized filenames, no execution of file content, page and time limits on parsing to prevent resource exhaustion.
 - **Prompt injection:** PDF text is untrusted. Delimit it clearly in prompts, instruct the model to ignore instructions inside the document, validate outputs against schema, and never give the model tools or secrets.
 - **Auth:** argon2 password hashing, secure cookies (HttpOnly, SameSite) or short-lived JWTs, CSRF protection if cookie-based. Google OAuth uses the authorization-code flow with PKCE and `state`; the ID token is verified server-side and the client secret never reaches the browser. The frontend's login gate is only UX; the API enforces auth on every route.
-- **Authorization:** ownership checks on every document, quiz and attempt; shared quizzes are reachable only through an unguessable, unexpired share token.
+- **Authorization:** ownership checks on every document, quiz and attempt; shared quizzes are reachable only through an unguessable, unexpired share token, and the shared PDF only through a review-mode token.
 - **Expiry:** expired quizzes are rejected on read and hard-deleted by the cleanup job.
 - **Secrets:** provider keys server-side only, loaded from environment, never logged.
 - **Rate limiting:** per-user limits on uploads, generation and chat to control cost and abuse.
-- **Privacy:** delete cascades (document → chunks → file); do not send documents to a provider the user has not been told about.
+- **Privacy:** delete cascades (document → chunks → file → quizzes); only the title and aggregate stats are kept as a History entry until the user deletes it; do not send documents to a provider the user has not been told about.
 
 ## 10. Observability
 
@@ -314,7 +334,7 @@ bookwyrm/
 │   │   ├── retrieval/      # vector, fulltext, fusion, rerank
 │   │   ├── generation/     # prompts, schemas, verify, dedupe
 │   │   ├── grading/
-│   │   ├── progress/       # topics, SM-2
+│   │   ├── progress/       # stats, confidence, topic quizzes
 │   │   ├── providers/      # llm + embedding interfaces and impls
 │   │   └── jobs/
 │   ├── tests/
@@ -337,7 +357,7 @@ bookwyrm/
 
 ## 13. Testing Strategy
 
-- **Unit:** chunking, citation/evidence matching, RRF, SM-2, schema validation.
+- **Unit:** chunking, citation/evidence matching, RRF, passing confidence, schema validation.
 - **Integration:** ingestion → retrieval → generation against a small fixture PDF using a **fake provider** that returns canned outputs, so tests are deterministic and free.
 - **API tests:** auth, ownership, answer-hiding before submission.
 - **Contract tests:** each real provider implementation against the interface (run manually or nightly, since they cost money and need keys).

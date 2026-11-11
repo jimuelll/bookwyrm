@@ -2,7 +2,7 @@
 
 **Quizzes from your PDFs, with the page for every answer.**
 
-Bookwyrm turns educational PDFs (textbooks, modules, lecture notes) into quizzes you can trust. Upload a document and it writes questions only from what is actually in it, checks each question with a second pass, and shows you the page and passage every answer came from. When you miss something, it tracks the topic and brings those questions back so you can review what you got wrong.
+Bookwyrm turns educational PDFs (textbooks, modules, lecture notes) into quizzes you can trust. Upload a document and it writes questions only from what is actually in it, checks each question with a second pass, and shows you the page and passage every answer came from. When you miss something, it tracks the topic and gives you a short quiz on just those pages so you can review what you got wrong.
 
 ## Why
 
@@ -19,7 +19,8 @@ Bookwyrm keeps every question grounded in your document and shows its source, so
 - **Verified questions.** A second check rejects questions that are ambiguous or not answerable from the source.
 - **See what to study.** Your score as a percentage plus the topics and pages you need to review.
 - **Review or quiz mode.** Review mode for unlimited practice on weak topics; quiz mode for a one-time attempt with a leaderboard for that quiz.
-- **Share by link.** Classmates log in to take your quiz while it is valid (you choose how long, up to 7 days, then it is deleted).
+- **Share by link.** Classmates log in to take your quiz while it is valid (you choose how long, up to 7 days, then the quiz is deleted; the PDF stays).
+- **Stats per PDF.** Weak and strong topics and a passing confidence rate for each PDF in your library. Delete a PDF and its stats move to History.
 
 An account (email or Google) is required for all of it.
 
