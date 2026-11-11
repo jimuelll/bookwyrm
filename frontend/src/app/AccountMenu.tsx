@@ -30,9 +30,9 @@ export function AccountMenu({ email }: { email: string }) {
     }
   }, [open])
 
-  function logOut() {
+  async function logOut() {
     setOpen(false)
-    signOut()
+    await signOut()
     navigate('/')
   }
 

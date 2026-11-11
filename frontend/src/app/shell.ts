@@ -23,7 +23,7 @@ export function useStartUpload() {
   const navigate = useNavigate()
   return useCallback(
     (prompt: LoginPrompt = { reason: 'You need an account to upload a PDF.' }) =>
-      requireAuth(() => navigate('/library'), prompt),
+      requireAuth(() => navigate('/library'), { next: '/library', ...prompt }),
     [requireAuth, navigate],
   )
 }

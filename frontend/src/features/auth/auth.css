@@ -55,3 +55,20 @@
 @media (prefers-reduced-motion: reduce) {
   .auth[open] { animation: none; }
 }
+
+/* password label with "Forgot password?" on the same line */
+.auth-label-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 6px; }
+.auth-label-row label { margin-top: 0; }
+.auth-forgot, .auth-inline {
+  padding: 0; background: none; border: 0; cursor: pointer;
+  font-family: var(--font-display); font-style: italic; font-size: 16px; color: var(--muted);
+  text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 4px;
+}
+.auth-forgot { min-height: 44px; margin-block: -10px; } /* full-size target without stretching the row */
+.auth-forgot:hover, .auth-inline:hover { color: var(--ink); text-decoration-color: var(--accent); }
+.auth-inline { color: var(--incorrect); font-size: inherit; }
+.auth-note { margin: 0; font-size: 16px; color: var(--correct); }
+.auth-reason strong { color: var(--ink); font-weight: 500; overflow-wrap: anywhere; }
+
+/* reset-password page: the same form, centred on the page */
+.reset-form { width: min(380px, 100%); margin-top: 8px; text-align: left; }

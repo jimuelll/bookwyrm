@@ -52,7 +52,7 @@ export function TopBar({ theme, onToggleTheme, ctaHidden, onUpload }: Props) {
             <AccountMenu email={user.email} />
           </>
         ) : (
-          <button type="button" className="btn btn-outline bar-login" onClick={openLogin}>Log in</button>
+          <button type="button" className="btn btn-outline bar-login" onClick={() => openLogin()}>Log in</button>
         )}
         <button
           className="icon-btn"
