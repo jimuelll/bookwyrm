@@ -131,11 +131,17 @@ A small dragon-worm made of the books it reads. It is the brand's character, use
 - **Tail:** a red silk bookmark ribbon (`#8E2A2A`) that flutters.
 - **Behaviour:** burrows through the spines, weaving in front of and behind the books and leaving dark holes; every few seconds it turns to glance at the reader. Calm, curious, never frantic.
 - **Use:** loaders show it burrowing across a progress line ("Reading p. 41 of 148"); empty states show it curled on a book; errors show it peering out of a hole. Keep it small in working screens; it is a companion, not decoration on every card.
+- **Ink-glyph Wyrm (loading and waiting):** the mascot as an engraving made of dots, from the "Bookwyrm Hero Directions" design canvas. Code: `frontend/src/components/inkWyrm/` (`draw.ts` is the drawing, `InkWyrm` the canvas, `WyrmLoader` the page-level loader). The body is painted in greys on a tiny offscreen grid, then every cell is printed as a big or a small dim dot through a 4×4 ordered dither; the eye is the one spark of colour and blinks every 4.2 s.
+  - **slither** = something is working: logging in, checking a link, loading a page; later indexing a PDF and generating a quiz (with a progress line and a "Reading p. 41 of 148" detail).
+  - **coil** = waiting or empty: curled asleep on a stack of three books, motes drifting up. Used in the empty Library's card; later "review done".
+  - **Colours** are tokens, so it follows day/night and can be re-inked locally: `--wyrm-dot` (ink), `--wyrm-dim` (frame), `--wyrm-eye` (`#C2621F` day, `#E3A64F` night).
+  - **Sizes:** page loader 240×110 with 4px cells; small 84×76 with 2px cells. Below about 30 cells wide it stops reading as a wyrm, so it is never put inside buttons.
+  - **Access:** decorative (`aria-hidden`) next to a text label that a `role="status"` region announces; standalone, it takes a `label` and becomes `role="img"`. Reduced motion draws one still frame. It only animates on screen in a visible tab.
 - **Open item:** a close-up character sheet to refine the face before using it at large sizes.
 
 ## 8. Motion
 
-- Ambient motion lives in the scene only (camera drift, lantern sway, wyrm, motes). UI motion is limited to hover/press feedback (150–200ms) and the scroll-hint nudge.
+- Ambient motion lives in the scene and in the Ink-glyph Wyrm loaders only (camera drift, lantern sway, wyrm, motes). UI motion is limited to hover/press feedback (150–200ms) and the scroll-hint nudge.
 - Everything honours `prefers-reduced-motion`; animated content has a visible pause control.
 
 ## 9. Accessibility checklist

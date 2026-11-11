@@ -36,7 +36,8 @@ Requires Node 22+, [uv](https://docs.astral.sh/uv/) (it installs Python 3.12 for
 cp .env.example .env                 # backend values: SUPABASE_URL, GEMINI_API_KEY, ...
 # frontend values go in frontend/.env.local: VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY, VITE_API_URL
 cd frontend && npm install && npm run dev
-cd backend && uv sync && uv run uvicorn app.main:app --reload   # API on http://localhost:8000
+cd backend && uv sync && uv run alembic upgrade head   # create/update the database tables (needs DATABASE_URL)
+cd backend && uv run uvicorn app.main:app --reload     # API on http://localhost:8000
 ```
 
 ### Set up Supabase (one time)
