@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     # Ingestion limits (docs/ARCHITECTURE.md §4.1)
     max_pages: int = 500
     max_upload_mb: int = 25
+    # Where uploaded PDFs are kept (app/storage.py): a private Supabase Storage bucket when the secret key
+    # below is set, else this folder (relative paths are under backend/). The folder also holds temporary
+    # files while an upload is checked and read.
+    storage_dir: str = "storage"
+    storage_bucket: str = "documents"  # created by migrations/versions/0003_documents_bucket.py
 
     # Chunking, in estimated tokens; kept in config so the evaluation can vary them
     chunk_target_tokens: int = 600
@@ -37,6 +42,10 @@ class Settings(BaseSettings):
     # Only for projects still on the legacy shared-secret (HS256) JWTs. New projects sign tokens with
     # asymmetric keys that are fetched from the project's public JWKS endpoint, so no secret is needed.
     supabase_jwt_secret: str = ""
+    # The project's secret key (dashboard -> Project Settings -> API Keys: an sb_secret_... key, or the
+    # legacy service_role key). Used only to reach Storage. Server-side only: it bypasses every access
+    # rule, so it must never reach the browser or a VITE_* variable.
+    supabase_secret_key: str = ""
     # The Postgres connection string as Supabase shows it (dashboard -> Connect -> pooler), e.g.
     # postgresql://postgres.<project-id>:<db-password>@aws-0-<region>.pooler.supabase.com:5432/postgres
     # (app/db/session.py switches it to the asyncpg driver)
@@ -45,6 +54,11 @@ class Settings(BaseSettings):
 
     # API
     cors_origins: str = "http://localhost:5173"  # comma-separated browser origins allowed to call the API
+
+    @property
+    def storage_path(self) -> Path:
+        path = Path(self.storage_dir)
+        return path if path.is_absolute() else REPO_ROOT / "backend" / path
 
     @property
     def cors_origin_list(self) -> list[str]:

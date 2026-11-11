@@ -24,8 +24,8 @@ class Page:
         return len(self.text.strip()) < SCANNED_PAGE_CHARS
 
 
-def extract_pages(path: Path, *, max_pages: int = 500, max_mb: int = 25) -> list[Page]:
-    """Read every page's text. Raises PdfError for files that aren't usable PDFs."""
+def _open_checked(path: Path, *, max_pages: int, max_mb: int) -> Any:
+    """Open a PDF after the cheap checks. Raises PdfError; the caller must close the document."""
     if not path.is_file():
         raise PdfError(f"File not found: {path}")
     if path.stat().st_size > max_mb * 1024 * 1024:
@@ -40,11 +40,32 @@ def extract_pages(path: Path, *, max_pages: int = 500, max_mb: int = 25) -> list
     except Exception as e:  # PyMuPDF raises several types for damaged files
         raise PdfError("The PDF could not be opened; it may be damaged.") from e
 
-    with doc:
+    try:
         if doc.needs_pass:
             raise PdfError("The PDF is password-protected. Remove the password and upload it again.")
+        if doc.page_count == 0:
+            raise PdfError("The PDF has no pages.")
         if doc.page_count > max_pages:
             raise PdfError(f"The PDF has {doc.page_count} pages; the limit is {max_pages}.")
+    except PdfError:
+        doc.close()
+        raise
+    return doc
+
+
+def inspect_pdf(path: Path, *, max_pages: int = 500, max_mb: int = 25) -> int:
+    """The quick checks only (type, size, damage, password, page limit), without reading any text.
+
+    Fast enough to run while the upload request waits, so a wrong file is refused at once.
+    Returns the page count.
+    """
+    with _open_checked(path, max_pages=max_pages, max_mb=max_mb) as doc:
+        return int(doc.page_count)
+
+
+def extract_pages(path: Path, *, max_pages: int = 500, max_mb: int = 25) -> list[Page]:
+    """Read every page's text. Raises PdfError for files that aren't usable PDFs."""
+    with _open_checked(path, max_pages=max_pages, max_mb=max_mb) as doc:
         pages = [Page(number=i + 1, text=page.get_text("text")) for i, page in enumerate(doc)]
 
     if not pages or all(p.likely_scanned for p in pages):

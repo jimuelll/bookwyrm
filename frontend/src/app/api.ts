@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { useAuth } from '../features/auth/authContext'
 
-const BASE = (import.meta.env.VITE_API_URL ?? 'http://localhost:8000').replace(/\/$/, '')
+export const API_BASE = (import.meta.env.VITE_API_URL ?? 'http://localhost:8000').replace(/\/$/, '')
 
 /** A failed API call, with a message written for the reader. `status` is 0 when the server couldn't be reached. */
 export class ApiError extends Error {
@@ -24,7 +24,7 @@ const FALLBACK: Record<number, string> = {
 export async function apiFetch<T>(token: string | null, path: string, init: RequestInit = {}): Promise<T> {
   let response: Response
   try {
-    response = await fetch(`${BASE}${path}`, {
+    response = await fetch(`${API_BASE}${path}`, {
       ...init,
       headers: {
         'Content-Type': 'application/json',
@@ -36,13 +36,17 @@ export async function apiFetch<T>(token: string | null, path: string, init: Requ
     throw new ApiError("Couldn't reach the Bookwyrm server. Check your connection and try again.", 0)
   }
   if (!response.ok) {
-    // our API sends {"detail": "message for the reader"} for errors it expects
     const body: unknown = await response.json().catch(() => null)
-    const detail = body && typeof body === 'object' && 'detail' in body ? body.detail : null
-    const message = typeof detail === 'string' ? detail : (FALLBACK[response.status] ?? 'Something went wrong. Try again.')
-    throw new ApiError(message, response.status)
+    throw new ApiError(errorMessage(response.status, body), response.status)
   }
+  if (response.status === 204) return undefined as T // "No Content", e.g. after a DELETE
   return (await response.json()) as T
+}
+
+/** The message for a failed call: our API sends {"detail": "message for the reader"} for errors it expects. */
+export function errorMessage(status: number, body: unknown): string {
+  const detail = body && typeof body === 'object' && 'detail' in body ? body.detail : null
+  return typeof detail === 'string' ? detail : (FALLBACK[status] ?? 'Something went wrong. Try again.')
 }
 
 /** `apiFetch` with the current reader's token filled in. */

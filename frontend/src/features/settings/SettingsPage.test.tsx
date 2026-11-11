@@ -14,6 +14,7 @@ function fakeApi(initial: { display_name: string; chosen: boolean }) {
     const headers = new Headers(init.headers)
     const body = init.body ? JSON.parse(String(init.body)) : undefined
     requests.push({ method: init.method ?? 'GET', url, auth: headers.get('Authorization'), body })
+    if (new URL(url).pathname === '/documents') return Response.json([]) // the Library's shelf: empty
     if (init.method === 'PUT') {
       const name = String(body.display_name).trim()
       if (name.length > 40) return Response.json({ detail: 'Keep it to 40 characters or fewer.' }, { status: 422 })

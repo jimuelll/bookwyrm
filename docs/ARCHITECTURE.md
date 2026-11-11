@@ -93,6 +93,12 @@ Upload → validate → store file → create document (status=queued)
 
 **Idempotency:** a content hash (SHA-256) of the file lets the system detect re-uploads and skip re-embedding.
 
+**Built so far** (`backend/app/documents.py`, `app/storage.py`, migration `0002_documents.py`):
+- **In the request** (`POST /documents`): the upload is streamed to a temporary file 1 MB at a time, hashed as it goes, and cut off as soon as it passes `MAX_UPLOAD_MB` (413). Then the quick checks run (`inspect_pdf`: `%PDF-` magic bytes, opens, no password, at most `MAX_PAGES`), so a wrong file gets an immediate 422 with a message for the reader. The browser's `Content-Type` is not trusted. If this reader already has a file with the same hash, that document comes back (200) instead of a copy, unless the old one failed, in which case it is replaced and read again.
+- **In a FastAPI background task** after the 202 response: `extracting` → `chunking` → `ready`, each persisted. Extraction and chunking are blocking code, so they run in a worker thread (`asyncio.to_thread`). A `PdfError` (e.g. every page scanned) ends in `failed` with its message; any other exception is logged and the reader sees a generic message.
+- **Not yet:** structure/headings, the `embedding` step (no embedding provider exists yet, so no pgvector column), resuming a failed job. A restart kills jobs in progress, so on startup the API marks unfinished documents `failed` ("interrupted, upload it again"). That assumes one API process; the `jobs` table replaces it before we run several.
+- **File storage** (`app/storage.py`, behind one `FileStore` interface): the private Supabase Storage bucket `documents` (migration `0003`: not public, no storage policies, 25 MB and `application/pdf` only), reached over Storage's REST API with `SUPABASE_SECRET_KEY`, which stays server-side. Objects are `<user id>/<document id>.pdf`, never the uploaded name. Without the key (tests, offline work) files go to a folder on the API's disk (`STORAGE_DIR`) instead; most hosts wipe that on redeploy, so production needs the key. The ingestion job downloads a temporary copy for PyMuPDF and deletes it when done. Ordering keeps the two in step: on upload the row is created, then the file stored, and the row removed again if storing fails (`503`); on delete the file goes first, so a storage outage leaves the book in place to retry rather than an orphaned file. Later, "Open PDF" will use short-lived signed URLs from the API.
+
 ### 4.2 Retrieval
 
 **Hybrid search** combines two signals:
@@ -186,11 +192,13 @@ profiles(id REFERENCES auth.users ON DELETE CASCADE, display_name varchar(40) CH
          created_at, updated_at)   -- RLS on, no policies: only the backend reads/writes it
       -- our own per-user data; every user_id below is an auth.users id
 
-documents(id, user_id, title, file_path, content_hash, page_count,
-          status, error, created_at)
+documents(id, user_id REFERENCES auth.users ON DELETE CASCADE, title, filename, content_hash,
+          page_count, status CHECK in ('queued','extracting','chunking','ready','failed'),
+          error, created_at, updated_at)   -- built (0002); the file's path is derived from (user_id, id)
 
-chunks(id, document_id, page_start, page_end, heading_path, text,
-       token_count, embedding vector(N), embedding_model, tsv tsvector)
+chunks(id, document_id REFERENCES documents ON DELETE CASCADE, ordinal, page_start, page_end,
+       text, token_count, page_marks jsonb)   -- built (0002); page_marks = where each page starts in text
+      -- planned: heading_path, embedding vector(N), embedding_model, tsv tsvector
 
 quizzes(id, user_id, document_id, config jsonb, status,
         mode ('review' | 'quiz'), kind ('full' | 'topic'),
@@ -241,9 +249,9 @@ jobs(id, document_id, type, status, step, attempts, last_error, updated_at)
 | GET | `/profile` | The reader's display name (or a suggestion from their Google name / email, with `chosen: false`) |
 | PUT | `/profile` | Set the display name; the server tidies and validates it (`422` with a reason) |
 | GET | `/health` | Liveness check, no login |
-| POST | `/documents` | Upload PDF (starts ingestion job) |
-| GET | `/documents`, `/documents/{id}` | List and status/progress |
-| DELETE | `/documents/{id}` | Delete document, chunks, file and quizzes; its stats move to History |
+| POST | `/documents` | Upload a PDF (multipart, field `file`). `202` stored and queued for reading; `200` this reader already has this exact file (that document is returned); `413` too large; `422` not a usable PDF, with the reason |
+| GET | `/documents`, `/documents/{id}` | The reader's own documents, newest first; one document's status (`404` for anyone else's) |
+| DELETE | `/documents/{id}` | Delete document, chunks and file (`204`); later also its quizzes, with its stats moving to History |
 | POST | `/documents/{id}/quizzes` | Generate quiz from config (includes `mode` and `lifetime_hours` ≤ 168) |
 | GET | `/s/{share_token}` | Resolve a share link to its quiz (auth required; `410` if expired) |
 | GET | `/s/{share_token}/document` | Read-only PDF for review-mode shares (`403` for quiz mode, `410` if expired) |
@@ -258,7 +266,7 @@ jobs(id, document_id, type, status, step, attempts, last_error, updated_at)
 | POST | `/documents/{id}/chat` | RAG Q&A (SSE stream) |
 | GET | `/quizzes/{id}/export?format=anki\|pdf` | Export |
 
-Long operations (ingestion, quiz generation for large counts) return `202 Accepted` with a job ID; the client polls `GET /jobs/{id}` or subscribes to an SSE stream.
+Long operations (ingestion, quiz generation for large counts) return `202 Accepted` with a job ID; the client polls `GET /jobs/{id}` or subscribes to an SSE stream. For now ingestion's job *is* the document: the Library polls `GET /documents` every 1.5 s while any document is still being read, and stops once all are `ready` or `failed`.
 
 **Every endpoint except `/health` requires a valid Supabase access token** (`401` otherwise).
 

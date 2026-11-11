@@ -45,6 +45,43 @@
 .shelf-empty-title { margin: 0; font-family: var(--font-display); font-size: 28px; line-height: 1.2; }
 .shelf-empty-text { margin: 0 0 10px; max-width: 30rem; font-size: 18px; line-height: 1.5; color: var(--muted); }
 
+/* the shelf couldn't be fetched: say so, offer to try again */
+.shelf-problem { display: grid; justify-items: start; gap: 12px; padding: 18px 0; border-top: 1px solid var(--rule); }
+.shelf-error { margin: 0; font-size: 18px; color: var(--incorrect); }
+
+/* Your books: one row per PDF between hairline rules, the cover leading (design/library-task.html, C) */
+.shelf-books { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+.shelf-book { display: flex; align-items: center; gap: 16px; padding: 14px 4px; border-bottom: 1px solid var(--rule); }
+.shelf-book-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.shelf-book-title { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 22px; line-height: 1.2; color: var(--ink); overflow-wrap: anywhere; }
+.shelf-book-meta { margin: 0; font-size: 16px; color: var(--muted); }
+.shelf-book-note { margin: 2px 0 0; font-family: var(--font-display); font-style: italic; font-size: 16px; color: var(--accent); }
+.shelf-book-error { margin: 2px 0 0; font-size: 16px; line-height: 1.4; color: var(--incorrect); }
+/* while it's being read: a thin rule filling in three steps, the step named beneath (bar styles: upload.css) */
+.shelf-book-reading { display: grid; gap: 6px; max-width: 320px; margin-top: 6px; }
+.shelf-book-step { margin: 0; font-family: var(--font-caps); font-size: 14px; letter-spacing: .06em; color: var(--muted); }
+.shelf-book-state { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-caps); font-size: 15px; letter-spacing: .06em; color: var(--muted); }
+.shelf-book-state svg { width: 16px; height: 16px; color: var(--accent); }
+.shelf-book.is-failed .cover { filter: grayscale(.8); opacity: .6; }
+.shelf-book-remove {
+  min-height: 44px; padding: 0 4px; background: none; border: 0; cursor: pointer;
+  font-family: var(--font-display); font-style: italic; font-size: 17px; color: var(--ink);
+  text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 4px;
+}
+.shelf-book-remove:hover { text-decoration-color: var(--accent); }
+.shelf-book-remove:disabled { cursor: progress; color: var(--muted); }
+/* the last row: add another, a ghost of a book */
+.shelf-book-add { padding: 0; }
+.shelf-book-add button {
+  flex: 1; display: flex; align-items: center; gap: 16px; padding: 14px 4px; min-height: 44px;
+  background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.shelf-book-add button:hover { background: color-mix(in srgb, var(--page) 70%, transparent); }
+.shelf-book-add .shelf-book-title { font-style: italic; }
+.shelf-book-add-icon { width: 20px; height: 20px; flex: none; color: var(--accent); }
+.cover.is-ghost { background: transparent; border-style: dashed; opacity: .6; }
+.cover.is-ghost::before, .cover.is-ghost::after { display: none; }
+
 /* a small engraved book cover: hatched cloth, a spine band, a paper title label */
 .cover {
   --cloth: var(--page);

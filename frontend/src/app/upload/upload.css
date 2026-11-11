@@ -1,0 +1,42 @@
+/* The upload dialog: the login modal's frame (.auth, auth.css) with a drop area and a progress rule. */
+.upload { width: min(460px, calc(100% - 32px)); }
+
+/* the dashed area, as on the empty shelf: drop a file here, or choose one */
+.upload-drop {
+  display: grid; justify-items: center; gap: 10px; padding: 26px 20px;
+  border: 1.5px dashed var(--frame); border-radius: 3px; text-align: center;
+  transition: border-color .15s, background-color .15s;
+}
+.upload-drop.is-over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.upload-drop-title { margin: 0; font-family: var(--font-display); font-size: 24px; line-height: 1.2; }
+.upload-drop .auth-or { align-self: stretch; }
+/* the real file input stays in the page (the button clicks it) but out of sight */
+.upload-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+/* while sending: the file's name, a thin ruled bar, what's happening and Cancel */
+.upload-sending { display: grid; gap: 10px; padding: 18px 0 4px; border-top: 1px solid var(--rule); }
+.upload-file { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 18px; color: var(--ink); overflow-wrap: anywhere; }
+.upload-file svg { width: 18px; height: 18px; flex: none; color: var(--accent); }
+.upload-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.upload-status { margin: 0; font-family: var(--font-caps); font-size: 15px; letter-spacing: .06em; color: var(--muted); }
+
+/* a <progress> drawn as an ink rule filling with accent */
+.upload-bar, .shelf-book-progress {
+  appearance: none; width: 100%; height: 4px; border: 0; border-radius: 0; overflow: hidden;
+  background: color-mix(in srgb, var(--rule) 70%, transparent); color: var(--accent);
+}
+.upload-bar::-webkit-progress-bar, .shelf-book-progress::-webkit-progress-bar { background: transparent; }
+.upload-bar::-webkit-progress-value, .shelf-book-progress::-webkit-progress-value { background: var(--accent); transition: width .2s; }
+.upload-bar::-moz-progress-bar, .shelf-book-progress::-moz-progress-bar { background: var(--accent); }
+/* no value = the server is working and can't say how far along: a short segment sweeps across */
+.upload-bar:indeterminate, .shelf-book-progress:indeterminate {
+  background: linear-gradient(90deg, transparent 0 35%, var(--accent) 35% 55%, transparent 55%) 0 0 / 300% 100%,
+    color-mix(in srgb, var(--rule) 70%, transparent);
+  animation: upload-sweep 1.4s linear infinite;
+}
+.upload-bar:indeterminate::-webkit-progress-bar, .shelf-book-progress:indeterminate::-webkit-progress-bar { background: transparent; }
+.upload-bar:indeterminate::-moz-progress-bar, .shelf-book-progress:indeterminate::-moz-progress-bar { background: transparent; }
+@keyframes upload-sweep { from { background-position: 100% 0, 0 0; } to { background-position: 0 0, 0 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .upload-bar:indeterminate, .shelf-book-progress:indeterminate { animation: none; background: color-mix(in srgb, var(--accent) 45%, var(--rule)); }
+}

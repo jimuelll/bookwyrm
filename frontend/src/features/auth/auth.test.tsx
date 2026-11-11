@@ -101,13 +101,15 @@ describe('log in', () => {
     expect(within(dialog).getByLabelText('Email')).toBeInTheDocument()
   })
 
-  it('logs in with the right password and continues to the library', async () => {
+  it('logs in with the right password and continues to the upload it was opened for', async () => {
     const { user } = await openLogin()
     await fillIn(user, 'ana@school.edu', 'hunter22')
     await user.click(within(loginDialog()!).getByRole('button', { name: 'Log in' }))
 
     expect(await screen.findByRole('heading', { level: 1, name: /ex libris/i })).toBeInTheDocument()
-    expect(loginDialog()).toBeNull()
+    // the login modal has closed; the one dialog left open is the upload Get started asked for
+    expect(await screen.findByRole('dialog', { name: 'Upload a PDF' })).toBeInTheDocument()
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
   })
 
   it('says so when the password is wrong and stays logged out', async () => {

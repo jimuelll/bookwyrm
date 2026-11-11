@@ -1,7 +1,8 @@
 import { useCallback, useEffect } from 'react'
-import { useNavigate, useOutletContext } from 'react-router'
+import { useOutletContext } from 'react-router'
 import type { Theme } from '../hooks/useTheme'
 import { useAuth, type LoginPrompt } from '../features/auth/authContext'
+import { useUploads } from './upload/uploadContext'
 
 /** What the layout shares with every page rendered in its <Outlet>. */
 export interface Shell {
@@ -13,16 +14,17 @@ export function useShell() {
 }
 
 /**
- * Start an upload. Logged out, this opens the login modal first (PRD 7.10) and continues after login.
- * TODO(upload): open the upload + quiz configuration flow; for now it lands on the Library.
+ * Start an upload: open the upload dialog (app/upload). Logged out, this opens the login modal first
+ * (PRD 7.10) and continues to the dialog after login; after a Google redirect, which reloads the page,
+ * the reader lands on the Library instead (`next`), where Upload is one click away.
  */
 export function useStartUpload() {
   const { requireAuth } = useAuth()
-  const navigate = useNavigate()
+  const { open } = useUploads()
   return useCallback(
     (prompt: LoginPrompt = { reason: 'You need an account to upload a PDF.' }) =>
-      requireAuth(() => navigate('/library'), { next: '/library', ...prompt }),
-    [requireAuth, navigate],
+      requireAuth(open, { next: '/library', ...prompt }),
+    [requireAuth, open],
   )
 }
 
