@@ -18,10 +18,12 @@ interface Props {
   theme: Theme
   /** Reports whether the hero's Upload button is on screen (the app bar hides its copy meanwhile). */
   onCtaVisibleChange?: (visible: boolean) => void
+  /** Starts an upload; logged out, it opens the login modal first. */
+  onUpload: () => void
 }
 
 /** The storybook spread: copy on the left page, the live painted library framed on the right. */
-export function Hero({ theme, onCtaVisibleChange }: Props) {
+export function Hero({ theme, onCtaVisibleChange, onUpload }: Props) {
   const dark = theme === 'dark'
   const reducedMotion = usePrefersReducedMotion()
   // null = follow the reduced-motion setting; true/false = the reader pressed Play/Pause
@@ -32,7 +34,7 @@ export function Hero({ theme, onCtaVisibleChange }: Props) {
   const heroRef = useRef<HTMLElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const plateRef = useRef<HTMLDivElement>(null)
-  const ctaRef = useRef<HTMLAnchorElement>(null)
+  const ctaRef = useRef<HTMLButtonElement>(null)
   // the plate stays a clean painting until the reader asks for the sample question
   const [sampleOpen, setSampleOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -108,10 +110,10 @@ export function Hero({ theme, onCtaVisibleChange }: Props) {
               in it, checks each one, and shows you the page it came from.
             </p>
             <div className="actions">
-              <a className="btn btn-primary btn-lg" href="#" ref={ctaRef}>
+              <button type="button" className="btn btn-primary btn-lg" ref={ctaRef} onClick={onUpload}>
                 <UploadIcon />
                 Upload a PDF
-              </a>
+              </button>
               {EVAL_PROOF && <p className="proof">{EVAL_PROOF}</p>}
             </div>
           </div>

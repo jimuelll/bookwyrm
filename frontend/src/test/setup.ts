@@ -26,6 +26,17 @@ class NoopObserver {
 globalThis.IntersectionObserver ??= NoopObserver as unknown as typeof IntersectionObserver
 globalThis.ResizeObserver ??= NoopObserver as unknown as typeof ResizeObserver
 
+// jsdom has <dialog> but not showModal()/close(); this stand-in only toggles `open` and fires `close`.
+// (Browsers also trap focus and handle Esc; that part is the browser's job, not ours to test.)
+if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
+  HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement) { this.setAttribute('open', '') }
+  HTMLDialogElement.prototype.close = function (this: HTMLDialogElement) {
+    if (!this.hasAttribute('open')) return
+    this.removeAttribute('open')
+    this.dispatchEvent(new Event('close'))
+  }
+}
+
 afterEach(() => {
   cleanup()
   localStorage.clear()

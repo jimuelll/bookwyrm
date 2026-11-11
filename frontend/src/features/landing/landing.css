@@ -14,8 +14,9 @@
 .brand { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; margin-right: auto; text-decoration: none; font-family: var(--font-caps); font-size: 23px; letter-spacing: .04em; }
 .brand svg { width: 26px; height: 26px; color: var(--accent); }
 .bar nav { display: flex; align-items: center; gap: 2px; font-size: 17px; }
-.bar nav a { text-decoration: none; color: var(--muted); padding: 10px 12px; border-radius: 2px; transition: color .2s; }
-.bar nav a:hover { color: var(--ink); }
+.bar nav a, .nav-btn { text-decoration: none; color: var(--muted); padding: 10px 12px; border-radius: 2px; transition: color .2s; }
+.bar nav a:hover, .nav-btn:hover { color: var(--ink); }
+.nav-btn { min-height: 44px; background: none; border: 0; font: inherit; cursor: pointer; }
 .icon-btn { width: 44px; height: 44px; flex: none; display: inline-grid; place-items: center; border: 1px solid var(--rule); border-radius: 50%; background: transparent; color: var(--ink); cursor: pointer; transition: border-color .2s; }
 .icon-btn:hover { border-color: var(--accent); }
 .icon-btn svg { width: 18px; height: 18px; }
@@ -276,6 +277,6 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .scroll-hint svg { animation: none; }
-  .btn, .icon-btn, .bar nav a, .text-link, .bar-cta, .bar-cta.is-hidden, .opt, .cite::after, .next svg, .sample-trigger { transition: none; }
+  .btn, .icon-btn, .bar nav a, .nav-btn, .text-link, .bar-cta, .bar-cta.is-hidden, .opt, .cite::after, .next svg, .sample-trigger { transition: none; }
   .sample { animation: none; }
 }
