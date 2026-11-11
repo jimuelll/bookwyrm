@@ -90,6 +90,7 @@ Book conventions we use (each must encode something true):
 | Sample question (`.sample`) | A loose page over the plate: question, four options, verdict, citation (`.cite`) that swaps the options for the source passage with the supporting sentence marked. Opened from `.sample-trigger`; Esc or × closes and returns focus. |
 | Plate (`.page-r` + `.plate-frame`) | Framed window onto the scene, with running head, caption, and a Pause/Play control. |
 | Section list (`.how`) | HTML/CSS paper artifact (`.art`), then Roman numeral, display H3, muted paragraph. |
+| Login modal (`.auth`) | Native `<dialog>` opened with `showModal()`, framed like the sample card over a dimmed backdrop. Brand + ×, display H2 ("Log in" / "Create your account"), a muted line saying why it opened, **Continue with Google** as an outline button (`.btn-outline`, Google's own coloured "G" per their branding rules), an italic "or" rule, then email + password with small-caps labels and one primary submit. A `.text-link` switches between log in and sign up. Errors are one line in `--incorrect` (`role="alert"`). Opened by the bar's Log in and by any gated action (Upload a PDF); Esc, × or the backdrop closes it and focus returns to the opener. |
 
 Icons: one line set (`src/components/icons.tsx`), 1.6px stroke, round caps, 18px in controls. Decorative icons are `aria-hidden`; the control carries the name.
 

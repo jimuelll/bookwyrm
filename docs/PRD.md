@@ -13,6 +13,31 @@ A web app that turns educational PDFs into quizzes. The user uploads a document,
 
 **One-line pitch:** AI quizzes you can verify: every question cites its source page.
 
+### 1.1 Core flow
+
+Every feature below requires a signed-in user. Visitors can read the landing page and try the sample question; anything that uploads, generates or takes a quiz asks them to log in first.
+
+```
+log in (email or Google)
+  → upload a PDF
+  → configure the quiz (mode, topic/pages, difficulty, count, types, lifetime)
+  → quiz is generated
+  → take it
+  → results: score as a percentage + the parts of the PDF to study more (weak topics with their pages)
+  → (optional) share the link; others log in to take it
+```
+
+**Two modes**, chosen when configuring:
+
+| | Review mode | Quiz mode |
+|---|---|---|
+| Purpose | Study: find and work on weak topics | Test: one honest attempt |
+| Attempts | Unlimited retakes | One attempt per user, no retakes |
+| Results | Score + weak topics + pages to study | Score + weak topics + pages to study |
+| Leaderboard | No | Yes, per quiz only |
+
+**Lifetime:** the creator sets how long a quiz (and its share link) lives, up to a maximum of 7 days. When it expires the quiz is deleted automatically and its link stops working.
+
 ## 2. Problem Statement
 
 - Students study from long PDFs (textbooks, lecture notes, modules) but have no fast way to test themselves on them.
@@ -44,7 +69,12 @@ A web app that turns educational PDFs into quizzes. The user uploads a document,
 
 ## 6. User Stories
 
+- As a visitor, I'm asked to log in (email or Google) when I try to upload, so my documents and quizzes belong to my account.
 - As a student, I upload a PDF so I can be quizzed on it.
+- As a student, I pick review mode to study my weak topics with unlimited retakes, or quiz mode for a one-time test with a leaderboard.
+- As a student, I share a quiz by link so classmates (after logging in) can take it while it is still valid.
+- As a student, I set how long my quiz lasts (up to 7 days) and trust that it is deleted afterwards.
+- As a quiz-mode taker, I see where my score ranks on that quiz's leaderboard.
 - As a student, I choose a topic, page range, difficulty and question count so the quiz fits what I'm studying.
 - As a student, I see the source page for each question so I can verify it and review the material.
 - As a student, I get my score and see which topics I missed.
@@ -79,7 +109,8 @@ A web app that turns educational PDFs into quizzes. The user uploads a document,
 - One-question-at-a-time or full-page view.
 - Auto-grade objective questions.
 - AI-grade short answers against the source text, with a short explanation.
-- Results page: score, correct answers, explanations, and source citations.
+- Results page: score as a percentage, correct answers, explanations, source citations, and **what to study more**: the weak topics from this attempt with the pages they come from.
+- Behaviour depends on the quiz mode (see 7.11).
 
 ### 7.5 Source citations (P0)
 - Each question and explanation shows the source page.
@@ -103,11 +134,39 @@ A web app that turns educational PDFs into quizzes. The user uploads a document,
 - Anki-compatible CSV for flashcards.
 - Quiz as PDF.
 
-### 7.10 Accounts (P1)
-- Sign up / log in (email + password or OAuth).
-- Documents, quizzes and attempts are private to the user.
+### 7.10 Accounts (P0)
+- Login is required for every feature: upload, quiz generation, taking a quiz (including through a share link), results and progress. The landing page and the sample question stay public.
+- One login modal with two ways in: **Continue with Google** (OAuth) or **email + password** (sign up or log in). Google is shown in the UI from the start; it is wired up when the backend OAuth flow lands.
+- If a logged-out user starts a gated action (e.g. Upload a PDF, opening a share link), the modal opens and the action continues after they log in.
+- Documents are private to their owner. Quizzes are private unless shared by link (7.11).
 
-### 7.11 *New features*
+### 7.11 Quiz modes, sharing, lifetime and leaderboard (P0)
+
+**Modes** (picked in the quiz configuration):
+- **Review mode:** unlimited retakes. Results show the score, weak topics and the pages to study. No leaderboard.
+- **Quiz mode:** each user gets exactly one attempt; a second attempt is refused. Results show the score, weak topics and pages to study. Has a leaderboard.
+
+**Sharing:**
+- Any quiz (either mode) can be shared with a link.
+- Opening a link requires login. If the quiz has expired, the link shows an "expired" message instead.
+- Shared takers see the same mode rules as the creator (one attempt in quiz mode).
+
+**Lifetime:**
+- Set in the configuration; maximum 7 days.
+- On expiry the quiz, its questions, attempts and leaderboard are deleted automatically by a scheduled cleanup job, and the link returns "expired".
+
+**Leaderboard (quiz mode only):**
+- Scoped to a single quiz; there is no global leaderboard.
+- Ranks each taker's one attempt by score. Tie-break is an open question (section 14).
+- Visible to anyone logged in who can open the quiz.
+
+Acceptance criteria:
+- Logged out, clicking Upload a PDF opens the login modal; no upload happens.
+- A quiz-mode user who already submitted cannot start another attempt.
+- A link to an expired quiz never shows its questions.
+- Expired quizzes are gone from the database within one cleanup cycle after expiry.
+
+### 7.12 *New features*
 > Add new feature ideas here. Include: description, user story, priority (P0-P2), acceptance criteria.
 
 - [ ] _TBD_
@@ -119,7 +178,7 @@ A web app that turns educational PDFs into quizzes. The user uploads a document,
 - **Reliability:** failed LLM calls retried with backoff; jobs are resumable.
 - **Security:** auth on all user data, file type and size validation, rate limiting on LLM endpoints, API keys only on the server.
 - **Cost control:** cap tokens per request, cache embeddings, avoid re-embedding unchanged documents.
-- **Privacy:** uploaded documents are only accessible to their owner; support document deletion.
+- **Privacy:** uploaded documents are only accessible to their owner; support document deletion. A shared quiz exposes its questions, citations and leaderboard to logged-in link holders, never the whole PDF. Quizzes are deleted automatically when their lifetime (max 7 days) ends.
 
 ## 9. Technical Approach
 
@@ -152,8 +211,8 @@ Publish results in the README.
 |---|---|---|
 | M1 | CLI proof of concept | PDF in, 5 validated questions out |
 | M2 | Pipeline | Chunking, embeddings, pgvector, citations, verification pass |
-| M3 | API + UI | Upload, generate, take quiz, results |
-| M4 | Progress | Accounts, attempts, weak topics, follow-up quizzes |
+| M3 | API + UI | Accounts (email + Google), login-gated upload, configure, generate, take quiz, results with weak topics |
+| M4 | Sharing | Review/quiz modes, share links, lifetime + auto-delete, per-quiz leaderboard |
 | M5 | Extras | Chat, spaced repetition, exports |
 | M6 | Ship | Deploy, README, demo GIF, architecture diagram, evaluation write-up |
 
@@ -174,4 +233,9 @@ Publish results in the README.
 - Local embeddings or hosted?
 - Hosted or self-hosted deployment?
 - Support non-English PDFs (e.g. Filipino) in v1?
-- Auth method: email/password only, or OAuth too?
+- ~~Auth method: email/password only, or OAuth too?~~ Decided: email/password and Google OAuth (7.10).
+- When a quiz expires, is the uploaded PDF deleted too, or kept in the owner's library for new quizzes?
+- Auto-delete after 7 days removes attempts, so long-term progress (7.6) and spaced repetition (7.7) lose their history. Keep an anonymised per-topic summary for the owner, or drop long-term tracking?
+- Leaderboard tie-break: time taken, earliest submission, or a shared rank?
+- Can a quiz-mode creator take their own quiz, and do they appear on its leaderboard?
+- Does a review-mode share link let takers see the creator's weak topics, or only their own?

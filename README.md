@@ -17,7 +17,11 @@ Bookwyrm keeps every question grounded in your document and shows its source, so
 - **Upload a PDF.** It is read page by page, keeping headings and page numbers.
 - **Get a cited quiz.** Multiple choice, true/false, fill-in-the-blank and short answer, each linked to its page.
 - **Verified questions.** A second check rejects questions that are ambiguous or not answerable from the source.
-- **Review what you missed.** See your weak topics and get follow-up quizzes on just those pages.
+- **See what to study.** Your score as a percentage plus the topics and pages you need to review.
+- **Review or quiz mode.** Review mode for unlimited practice on weak topics; quiz mode for a one-time attempt with a leaderboard for that quiz.
+- **Share by link.** Classmates log in to take your quiz while it is valid (you choose how long, up to 7 days, then it is deleted).
+
+An account (email or Google) is required for all of it.
 
 ## Status
 

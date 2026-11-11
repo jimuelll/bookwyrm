@@ -59,7 +59,7 @@ This document describes how the system is built and why. The PRD describes what 
 | Jobs | FastAPI background tasks → Postgres-backed queue → ARQ/Celery + Redis only if needed | Start simple, upgrade on evidence |
 | Migrations | Alembic | Standard with SQLAlchemy |
 | ORM / DB access | SQLAlchemy 2.x (async) + pgvector adapter | |
-| Auth | Email/password with hashed passwords (argon2) and session or JWT; OAuth optional | |
+| Auth | Email/password (argon2) and Google OAuth (OpenID Connect), session or JWT | Login gates every feature (PRD 7.10) |
 | Evaluation | Custom harness + Ragas where useful | |
 | Tooling | uv or Poetry, Ruff, mypy, pytest; ESLint, Vitest on the frontend | |
 
@@ -143,21 +143,31 @@ Embed each question prompt and drop any whose cosine similarity to an already-ac
 **Short-answer grading**
 At attempt time, a grading call compares the user's answer to the reference answer and the cited chunk, returns correct / partial / incorrect and a one-line explanation. Objective types are graded deterministically.
 
-### 4.4 Progress and Spaced Repetition
+### 4.4 Modes, Sharing and Expiry
+
+- **Mode** is stored on the quiz (`review` | `quiz`). Starting an attempt on a `quiz`-mode quiz fails with `409 Conflict` if the user already has one; a unique index on `(quiz_id, user_id)` for quiz-mode attempts enforces it in the database too.
+- **Share link:** `/s/{share_token}` where the token is 128+ bits of randomness (not the quiz ID), so links can't be guessed. Resolving a token requires an authenticated user and a quiz with `expires_at > now()`; otherwise `401` (log in) or `410 Gone` (expired).
+- **Expiry:** `expires_at = created_at + lifetime`, lifetime capped at 7 days by the API and by a `CHECK` constraint. Every read also checks `expires_at`, so an expired quiz is unreachable even before cleanup runs.
+- **Cleanup job:** a scheduled task (every ~15 minutes) hard-deletes expired quizzes; questions, attempts and answers cascade.
+- **Results / weak topics:** computed per attempt by grouping answers by question `topic` and source page; the lowest-accuracy topics are listed with their pages as "study more".
+- **Leaderboard:** a query over `attempts` for one quiz-mode quiz, ordered by `score DESC` (tie-break: open question in the PRD). No global leaderboard table.
+
+### 4.5 Progress and Spaced Repetition
 
 - Every answer is stored with `is_correct`, `topic` and `question_id`.
 - **Weak topics:** aggregate accuracy by `topic` (and `heading_path`) across attempts; rank by lowest accuracy with a minimum-sample threshold.
 - **Targeted quiz:** generate from chunks tied to weak topics.
 - **SM-2 scheduling:** a `review_schedule` row per user and question holds `interval`, `ease` and `due_at`; a daily queue is `due_at <= now`.
 
-### 4.5 Chat with the PDF
+### 4.6 Chat with the PDF
 
 Standard RAG: retrieve with the same hybrid search, answer from the chunks only, return citations (page and chunk), and say "not found in the document" when retrieval is weak. Streamed to the client over Server-Sent Events. "Explain this answer" pre-fills the question's source chunk as context.
 
 ## 5. Data Model
 
 ```
-users(id, email, password_hash, created_at)
+users(id, email, password_hash NULL, google_sub NULL, display_name, created_at)
+      -- password_hash for email sign-up, google_sub for Google; at least one is set
 
 documents(id, user_id, title, file_path, content_hash, page_count,
           status, error, created_at)
@@ -165,7 +175,9 @@ documents(id, user_id, title, file_path, content_hash, page_count,
 chunks(id, document_id, page_start, page_end, heading_path, text,
        token_count, embedding vector(N), embedding_model, tsv tsvector)
 
-quizzes(id, user_id, document_id, config jsonb, status, created_at)
+quizzes(id, user_id, document_id, config jsonb, status,
+        mode ('review' | 'quiz'), share_token UNIQUE, expires_at,
+        created_at)   -- CHECK (expires_at <= created_at + interval '7 days')
 
 questions(id, quiz_id, type, prompt, options jsonb, answer, explanation,
           topic, difficulty, source_chunk_id, evidence,
@@ -186,18 +198,25 @@ jobs(id, document_id, type, status, step, attempts, last_error, updated_at)
 - `documents`: unique `(user_id, content_hash)`.
 - `answers`: `(attempt_id)`, and `(question_id)` for topic analytics.
 - `review_schedule`: `(user_id, due_at)`.
+- `quizzes`: unique `share_token`; B-tree on `expires_at` for the cleanup job.
+- `attempts`: unique `(quiz_id, user_id)` where the quiz is in quiz mode (one attempt only); `(quiz_id, score DESC)` for the leaderboard.
+- `users`: unique `email`; unique `google_sub`.
 
-**Multi-tenancy:** every user-owned table carries `user_id` (directly or via a parent) and every query filters by it. Consider Postgres row-level security as a hardening step.
+**Multi-tenancy:** every user-owned table carries `user_id` (directly or via a parent) and every query filters by it. The one exception is a shared quiz: any authenticated user holding a valid, unexpired `share_token` can read its questions and leaderboard and create their own attempts; they never get access to the document or its chunks. Consider Postgres row-level security as a hardening step.
 
 ## 6. API Surface
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/auth/register`, `/auth/login`, `/auth/logout` | Accounts |
+| POST | `/auth/register`, `/auth/login`, `/auth/logout` | Email accounts |
+| GET | `/auth/google`, `/auth/google/callback` | Google OAuth sign-in / sign-up |
+| GET | `/auth/me` | Current user (frontend checks login state) |
 | POST | `/documents` | Upload PDF (starts ingestion job) |
 | GET | `/documents`, `/documents/{id}` | List and status/progress |
 | DELETE | `/documents/{id}` | Delete document, chunks, file |
-| POST | `/documents/{id}/quizzes` | Generate quiz from config |
+| POST | `/documents/{id}/quizzes` | Generate quiz from config (includes `mode` and `lifetime_hours` ≤ 168) |
+| GET | `/s/{share_token}` | Resolve a share link to its quiz (auth required; `410` if expired) |
+| GET | `/quizzes/{id}/leaderboard` | Per-quiz leaderboard (quiz mode only) |
 | GET | `/quizzes/{id}` | Fetch quiz with questions (no answers until submitted) |
 | POST | `/quizzes/{id}/attempts` | Start attempt |
 | POST | `/attempts/{id}/submit` | Submit answers, grade, return results |
@@ -208,6 +227,8 @@ jobs(id, document_id, type, status, step, attempts, last_error, updated_at)
 | GET | `/quizzes/{id}/export?format=anki\|pdf` | Export |
 
 Long operations (ingestion, quiz generation for large counts) return `202 Accepted` with a job ID; the client polls `GET /jobs/{id}` or subscribes to an SSE stream.
+
+**Every endpoint except the auth ones requires a logged-in user.**
 
 **Never leak answers early:** the quiz fetch endpoint omits `answer`, `explanation` and `evidence` until the attempt is submitted.
 
@@ -249,8 +270,9 @@ Use an LLM judge to scale, but validate it against the human labels on a sample 
 
 - **Uploads:** type and size validation, store outside the web root, randomized filenames, no execution of file content, page and time limits on parsing to prevent resource exhaustion.
 - **Prompt injection:** PDF text is untrusted. Delimit it clearly in prompts, instruct the model to ignore instructions inside the document, validate outputs against schema, and never give the model tools or secrets.
-- **Auth:** argon2 password hashing, secure cookies (HttpOnly, SameSite) or short-lived JWTs, CSRF protection if cookie-based.
-- **Authorization:** ownership checks on every document, quiz and attempt.
+- **Auth:** argon2 password hashing, secure cookies (HttpOnly, SameSite) or short-lived JWTs, CSRF protection if cookie-based. Google OAuth uses the authorization-code flow with PKCE and `state`; the ID token is verified server-side and the client secret never reaches the browser. The frontend's login gate is only UX; the API enforces auth on every route.
+- **Authorization:** ownership checks on every document, quiz and attempt; shared quizzes are reachable only through an unguessable, unexpired share token.
+- **Expiry:** expired quizzes are rejected on read and hard-deleted by the cleanup job.
 - **Secrets:** provider keys server-side only, loaded from environment, never logged.
 - **Rate limiting:** per-user limits on uploads, generation and chat to control cost and abuse.
 - **Privacy:** delete cascades (document → chunks → file); do not send documents to a provider the user has not been told about.
@@ -336,7 +358,8 @@ bookwyrm/
 | Retrieval | Hybrid (vector + full-text, RRF) | Evaluation shows vector-only is as good |
 | Reranker | Optional, off by default | Evaluation shows a meaningful gain |
 | Job system | Background tasks / DB queue | Jobs need scheduling, priorities or heavy parallelism |
-| Auth | Email/password + session or JWT | Adding OAuth or teams |
+| Auth | Email/password + Google OAuth, session or JWT | Adding more providers or teams |
+| Quiz lifetime | Max 7 days, then hard delete | Users need longer-lived quizzes or history |
 | OCR | Out of scope for v1 | Users upload scanned documents |
 | Embedding model | Hosted default, local option | Cost, privacy or non-English quality demands change |
 | Non-English (e.g. Filipino) | Not guaranteed in v1 | A multilingual embedding model is tested in the evaluation |
