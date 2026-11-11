@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     # Only for projects still on the legacy shared-secret (HS256) JWTs. New projects sign tokens with
     # asymmetric keys that are fetched from the project's public JWKS endpoint, so no secret is needed.
     supabase_jwt_secret: str = ""
+    # The Postgres connection string as Supabase shows it (dashboard -> Connect -> pooler), e.g.
+    # postgresql://postgres.<project-id>:<db-password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+    # (app/db/session.py switches it to the asyncpg driver)
+    # Server-side only: it contains the database password and bypasses Row Level Security.
+    database_url: str = ""
 
     # API
     cors_origins: str = "http://localhost:5173"  # comma-separated browser origins allowed to call the API

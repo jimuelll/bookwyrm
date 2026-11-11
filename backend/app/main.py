@@ -1,6 +1,7 @@
 """The HTTP API. Run with:  uv run uvicorn app.main:app --reload
 
-For now: a health check and one protected route proving that Supabase logins are checked.
+Routes so far: health, who-am-I, and the reader's profile (display name).
+Every write to the database goes through here; browsers never write tables directly.
 Upload, quiz and stats routes come next (docs/ARCHITECTURE.md §6).
 """
 
@@ -13,6 +14,14 @@ from pydantic import BaseModel
 
 from app.config import Settings, get_settings
 from app.core.auth import AuthUser, InvalidToken, TokenVerifier, supabase_verifier
+from app.db.session import make_engine, make_sessionmaker
+from app.profiles import (
+    InvalidDisplayName,
+    ProfileStore,
+    SqlProfileStore,
+    clean_display_name,
+    default_display_name,
+)
 
 
 class Me(BaseModel):
@@ -20,10 +29,27 @@ class Me(BaseModel):
     email: str | None
 
 
-def create_app(settings: Settings | None = None, verifier: TokenVerifier | None = None) -> FastAPI:
+class ProfileOut(BaseModel):
+    display_name: str
+    email: str | None
+    # False until they save a name, so the UI can say the shown name is only a suggestion
+    chosen: bool
+
+
+class ProfileIn(BaseModel):
+    display_name: str
+
+
+def create_app(
+    settings: Settings | None = None,
+    verifier: TokenVerifier | None = None,
+    profiles: ProfileStore | None = None,
+) -> FastAPI:
     settings = settings or get_settings()
     if verifier is None and settings.supabase_url:
         verifier = supabase_verifier(settings.supabase_url, settings.supabase_jwt_secret)
+    if profiles is None and settings.database_url:
+        profiles = SqlProfileStore(make_sessionmaker(make_engine(settings.database_url)))
 
     app = FastAPI(title="Bookwyrm API", version="0.1.0")
     # Browsers block a page on one origin (localhost:5173) from reading another (localhost:8000) unless
@@ -60,13 +86,41 @@ def create_app(settings: Settings | None = None, verifier: TokenVerifier | None 
                 headers={"WWW-Authenticate": "Bearer"},
             ) from None
 
+    def profile_store() -> ProfileStore:
+        if profiles is None:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "The database is not configured (set DATABASE_URL)."
+            )
+        return profiles
+
+    User = Annotated[AuthUser, Depends(current_user)]
+    Profiles = Annotated[ProfileStore, Depends(profile_store)]
+
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.get("/auth/me")
-    def me(user: Annotated[AuthUser, Depends(current_user)]) -> Me:
+    def me(user: User) -> Me:
         return Me(id=user.id, email=user.email)
+
+    @app.get("/profile")
+    async def get_profile(user: User, store: Profiles) -> ProfileOut:
+        saved = await store.get_display_name(user.id)
+        return ProfileOut(
+            display_name=saved or default_display_name(user), email=user.email, chosen=saved is not None
+        )
+
+    @app.put("/profile")
+    async def update_profile(body: ProfileIn, user: User, store: Profiles) -> ProfileOut:
+        # The user id comes from the verified token, never from the request body, so nobody can
+        # change someone else's name by sending a different id.
+        try:
+            name = clean_display_name(body.display_name)
+        except InvalidDisplayName as e:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from None
+        await store.set_display_name(user.id, name)
+        return ProfileOut(display_name=name, email=user.email, chosen=True)
 
     return app
 

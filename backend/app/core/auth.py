@@ -26,6 +26,7 @@ class InvalidToken(Exception):
 class AuthUser:
     id: str  # Supabase user id (UUID), the `sub` claim
     email: str | None
+    name: str | None = None  # from Google, if they signed in with it
 
 
 KeyLookup = Callable[[str], Any]  # token -> public key that should have signed it
@@ -57,7 +58,12 @@ class TokenVerifier:
         # bad signature, expired, wrong audience/issuer, unreadable token, signing key not found
         except jwt.PyJWTError as e:
             raise InvalidToken(str(e)) from e
-        return AuthUser(id=str(claims["sub"]), email=claims.get("email"))
+        # Google sign-ins carry the person's name in user_metadata; email sign-ups don't
+        metadata = claims.get("user_metadata") or {}
+        name = metadata.get("full_name") or metadata.get("name")
+        return AuthUser(
+            id=str(claims["sub"]), email=claims.get("email"), name=name if isinstance(name, str) else None
+        )
 
 
 def supabase_verifier(supabase_url: str, hs256_secret: str = "") -> TokenVerifier:

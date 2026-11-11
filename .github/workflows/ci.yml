@@ -64,9 +64,10 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       DATABASE_URL: postgresql+asyncpg://bookwyrm:bookwyrm@localhost:5432/bookwyrm_test
+      # the throwaway CI database; tests that touch a real table only run when this is set
+      TEST_DATABASE_URL: postgresql+asyncpg://bookwyrm:bookwyrm@localhost:5432/bookwyrm_test
       LLM_PROVIDER: fake
       EMBEDDING_PROVIDER: fake
-      SECRET_KEY: ci-only-not-secret
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -76,4 +77,6 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy app
+      # create the tables exactly as production gets them, then test against them
+      - run: uv run alembic upgrade head
       - run: uv run pytest
