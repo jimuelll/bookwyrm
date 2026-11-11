@@ -6,8 +6,6 @@ import { useAuth, type LoginPrompt } from '../features/auth/authContext'
 /** What the layout shares with every page rendered in its <Outlet>. */
 export interface Shell {
   theme: Theme
-  /** The landing hero reports whether its own call-to-action is on screen, so the bar can hide its copy. */
-  setHeroCtaVisible: (visible: boolean) => void
 }
 
 export function useShell() {

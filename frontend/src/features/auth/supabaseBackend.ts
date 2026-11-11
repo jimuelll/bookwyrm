@@ -27,7 +27,10 @@ function supabase(): SupabaseClient {
   return client
 }
 
-const toUser = (u: SupabaseUser): User => ({ id: u.id, email: u.email ?? '' })
+const toUser = (u: SupabaseUser): User => {
+  const name = u.user_metadata?.full_name ?? u.user_metadata?.name
+  return { id: u.id, email: u.email ?? '', ...(typeof name === 'string' && name ? { name } : {}) }
+}
 
 const callbackUrl = (next: string) => `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`
 

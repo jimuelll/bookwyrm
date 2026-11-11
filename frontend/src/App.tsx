@@ -8,6 +8,7 @@ import { AuthProvider } from './features/auth/AuthProvider'
 import { LandingPage } from './features/landing/LandingPage'
 import { ResetPasswordPage } from './features/auth/ResetPasswordPage'
 import { LibraryPage } from './features/library/LibraryPage'
+import { SettingsPage } from './features/settings/SettingsPage'
 
 /** `authBackend` defaults to Supabase; tests pass an in-memory fake. */
 export default function App({ authBackend }: { authBackend?: AuthBackend }) {
@@ -23,6 +24,14 @@ export default function App({ authBackend }: { authBackend?: AuthBackend }) {
               element={
                 <RequireLogin title="Log in to see your library">
                   <LibraryPage />
+                </RequireLogin>
+              }
+            />
+            <Route
+              path="settings"
+              element={
+                <RequireLogin title="Log in to see your settings">
+                  <SettingsPage />
                 </RequireLogin>
               }
             />

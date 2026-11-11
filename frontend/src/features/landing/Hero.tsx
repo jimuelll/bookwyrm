@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
-import { ArrowRightIcon, ChevronDownIcon, PauseIcon, PlayIcon, QuizIcon, UploadIcon } from '../../components/icons'
+import { ArrowRightIcon, ChevronDownIcon, PauseIcon, PlayIcon, QuizIcon } from '../../components/icons'
 import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion'
 import type { Theme } from '../../hooks/useTheme'
 import type { StacksScene } from '../../scene/stacksScene'
@@ -17,15 +17,12 @@ const EVAL_PROOF: string | null = null
 
 interface Props {
   theme: Theme
-  /** Reports whether the hero's Upload button is on screen (the app bar hides its copy meanwhile). */
-  onCtaVisibleChange?: (visible: boolean) => void
-  loggedIn: boolean
-  /** Logged in: start an upload. Logged out ("Get started"): open the login modal on sign-up first. */
+  /** "Get started": opens the login modal on sign-up, then continues to the Library. */
   onCta: () => void
 }
 
 /** The storybook spread: copy on the left page, the live painted library framed on the right. */
-export function Hero({ theme, loggedIn, onCtaVisibleChange, onCta }: Props) {
+export function Hero({ theme, onCta }: Props) {
   const dark = theme === 'dark'
   const reducedMotion = usePrefersReducedMotion()
   // null = follow the reduced-motion setting; true/false = the reader pressed Play/Pause
@@ -36,7 +33,6 @@ export function Hero({ theme, loggedIn, onCtaVisibleChange, onCta }: Props) {
   const heroRef = useRef<HTMLElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const plateRef = useRef<HTMLDivElement>(null)
-  const ctaRef = useRef<HTMLButtonElement>(null)
   // the plate stays a clean painting until the reader asks for the sample question
   const [sampleOpen, setSampleOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -84,16 +80,6 @@ export function Hero({ theme, loggedIn, onCtaVisibleChange, onCta }: Props) {
   useEffect(() => { sceneRef.current?.setDark(dark) }, [dark])
   useEffect(() => { sceneRef.current?.setRunning(running) }, [running])
 
-  useEffect(() => {
-    const el = ctaRef.current
-    if (!el || !onCtaVisibleChange) return
-    const barH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--bar-h')) || 64
-    const io = new IntersectionObserver(([e]) => onCtaVisibleChange(e.isIntersecting), {
-      rootMargin: `-${barH}px 0px 0px 0px`,
-    })
-    io.observe(el)
-    return () => io.disconnect()
-  }, [onCtaVisibleChange])
 
   return (
     <section className="hero" ref={heroRef}>
@@ -112,10 +98,9 @@ export function Hero({ theme, loggedIn, onCtaVisibleChange, onCta }: Props) {
               in it, checks each one, and shows you the page it came from.
             </p>
             <div className="actions">
-              <button type="button" className="btn btn-primary btn-lg" ref={ctaRef} onClick={onCta}>
-                {loggedIn ? <UploadIcon /> : null}
-                {loggedIn ? 'Upload a PDF' : 'Get started'}
-                {loggedIn ? null : <ArrowRightIcon />}
+              <button type="button" className="btn btn-primary btn-lg" onClick={onCta}>
+                Get started
+                <ArrowRightIcon />
               </button>
               {EVAL_PROOF && <p className="proof">{EVAL_PROOF}</p>}
             </div>

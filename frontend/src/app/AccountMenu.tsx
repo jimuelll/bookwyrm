@@ -1,8 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { useAuth } from '../features/auth/authContext'
 
-/** The logged-in reader's initial; opens a small paper card with who is logged in and Log out. */
+/** The logged-in reader's initial; opens a small paper card with who is logged in, Settings and Log out. */
 export function AccountMenu({ email }: { email: string }) {
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
@@ -55,6 +55,7 @@ export function AccountMenu({ email }: { email: string }) {
             <span>Logged in as</span>
             <strong>{email}</strong>
           </p>
+          <Link className="account-link" to="/settings" onClick={() => setOpen(false)}>Settings</Link>
           <button type="button" className="btn btn-outline" onClick={logOut}>Log out</button>
         </div>
       )}

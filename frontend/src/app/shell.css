@@ -36,9 +36,6 @@
 
 .bar-login { padding: 0 18px; }
 
-/* the bar's Upload copy hides while the landing hero's own Upload button is in view */
-.bar-cta { transition: opacity .25s ease, visibility 0s linear 0s, filter .2s, transform .15s; }
-.bar-cta.is-hidden { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .25s ease, visibility 0s linear .25s; }
 
 /* account: the reader's initial; the card is a small loose page under it */
 .account { position: relative; }
@@ -52,6 +49,8 @@
 .account-who { margin: 0; display: grid; font-size: 16px; line-height: 1.35; }
 .account-who span { font-family: var(--font-caps); font-size: 14px; letter-spacing: .06em; color: var(--muted); }
 .account-who strong { font-weight: 500; overflow-wrap: anywhere; }
+.account-link { min-height: 44px; display: flex; align-items: center; padding-top: 4px; border-top: 1px solid var(--rule); font-family: var(--font-display); font-style: italic; font-size: 18px; text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 5px; }
+.account-link:hover { text-decoration-color: var(--accent); }
 
 /* inner pages (About, Library): content on the page background, centred to the content width */
 .sheet {
@@ -77,5 +76,5 @@
   .bar-login { padding: 0 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .bar nav a, .bar-cta, .bar-cta.is-hidden { transition: none; }
+  .bar nav a { transition: none; }
 }

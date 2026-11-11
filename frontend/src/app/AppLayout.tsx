@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router'
 import { useTheme } from '../hooks/useTheme'
 import { useStartUpload, type Shell } from './shell'
@@ -10,9 +10,6 @@ export function AppLayout() {
   const { theme, toggle } = useTheme()
   const startUpload = useStartUpload()
   const { pathname, hash, key } = useLocation()
-  // Only the landing hero has its own Upload button; elsewhere the bar's is always the one in view.
-  const [heroCtaVisible, setHeroCtaVisible] = useState(true)
-  const ctaHidden = pathname === '/' && heroCtaVisible
 
   // A client-side route change keeps the old scroll position, so reset it like a real page load,
   // or jump to the #section the link named (e.g. "How it works" from the About page).
@@ -21,10 +18,10 @@ export function AppLayout() {
     else window.scrollTo(0, 0)
   }, [pathname, hash, key])
 
-  const shell: Shell = { theme, setHeroCtaVisible }
+  const shell: Shell = { theme }
   return (
     <>
-      <TopBar theme={theme} onToggleTheme={toggle} ctaHidden={ctaHidden} onUpload={() => startUpload()} />
+      <TopBar theme={theme} onToggleTheme={toggle} onUpload={() => startUpload()} />
       <Outlet context={shell} />
     </>
   )

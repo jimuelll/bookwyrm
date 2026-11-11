@@ -4,6 +4,8 @@ import type { AuthBackend } from './authBackend'
 export interface User {
   id: string
   email: string
+  /** The name from Google, when they signed in with it */
+  name?: string
 }
 
 export interface LoginPrompt {

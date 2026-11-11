@@ -66,7 +66,7 @@ describe('sign up', () => {
     window.history.pushState(null, '', `/auth/callback?code=${fake.issueCode('ana@school.edu')}&next=/library`)
     render(<App authBackend={fake.backend} />)
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Your library' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: /ex libris/i })).toBeInTheDocument()
   })
 
   it('a used or expired link explains and offers to log in', async () => {
@@ -80,7 +80,7 @@ describe('sign up', () => {
     window.history.pushState(null, '', `/auth/callback?code=${fake.issueCode('ana@school.edu')}&next=//evil.example`)
     render(<App authBackend={fake.backend} />)
 
-    await screen.findByRole('heading', { level: 1, name: 'Your library' })
+    await screen.findByRole('heading', { level: 1, name: /ex libris/i })
     expect(window.location.pathname).toBe('/library')
   })
 })
@@ -106,7 +106,7 @@ describe('log in', () => {
     await fillIn(user, 'ana@school.edu', 'hunter22')
     await user.click(within(loginDialog()!).getByRole('button', { name: 'Log in' }))
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Your library' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: /ex libris/i })).toBeInTheDocument()
     expect(loginDialog()).toBeNull()
   })
 
@@ -168,7 +168,7 @@ describe('forgotten password', () => {
     await user.type(screen.getByLabelText('Type it again'), 'new-password-1')
     await user.click(screen.getByRole('button', { name: 'Save password' }))
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Your library' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: /ex libris/i })).toBeInTheDocument()
     await expect(fake.backend.signIn('ana@school.edu', 'new-password-1')).resolves.toBeTruthy()
   })
 
@@ -202,10 +202,23 @@ describe('header and session', () => {
   })
 
   it('keeps a saved session: a reload shows the reader as logged in', async () => {
-    setup({ signedIn: ANA })
+    setup({ signedIn: ANA }, '/about')
     expect(await within(nav()).findByRole('link', { name: 'Library' })).toBeInTheDocument()
+    expect(within(nav()).getByRole('link', { name: 'About' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Upload a PDF' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Log in' })).not.toBeInTheDocument()
+  })
+
+  it('sends a logged-in reader from the start page to their Library', async () => {
+    setup({ signedIn: ANA }, '/')
+    expect(await screen.findByRole('heading', { level: 1, name: /ex libris/i })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/library')
+  })
+
+  it('shows Upload a PDF in the bar on every page once logged in', async () => {
+    setup({ signedIn: ANA }, '/library')
+    await screen.findByRole('heading', { level: 1, name: /ex libris/i })
+    expect(screen.getByRole('button', { name: 'Upload a PDF' })).toBeVisible()
   })
 
   it('logs out from the account menu and returns to the start page', async () => {
