@@ -50,3 +50,6 @@ desktop.ini
 *.swp
 logs/
 *.log
+
+#design files
+design/

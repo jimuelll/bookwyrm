@@ -1,91 +1,79 @@
 import { usePageTitle, useShell, useStartUpload } from '../../app/shell'
 import { useDisplayName } from '../../app/useDisplayName'
-import { UploadIcon, WyrmMark } from '../../components/icons'
-import { InkWyrm } from '../../components/inkWyrm/InkWyrm'
-import stacksDay from '../../assets/stacks-day.webp'
-import stacksNight from '../../assets/stacks-night.webp'
+import { UploadIcon } from '../../components/icons'
+import { ReadingDesk } from './desk/ReadingDesk'
 import './library.css'
 
 /**
- * The logged-in home, set as a book like the landing hero but quieter (no live 3D):
- *   left page  = the inside cover, with an Ex Libris bookplate bearing the reader's name
- *   right page = a framed still painting of the stacks, with a card saying what to do next
- * Below it, the catalogue: one index card per PDF.
- * TODO(library): real PDFs, counts and "continue where you left off" once uploads exist.
+ * The logged-in home, "Shelf + panel": a working page where the next step is obvious at first glance,
+ * set in the hero's world: a paper sheet laid over a dim, lamplit surround (as the hero's book lies over
+ * its scene), with the picture framed as a plate.
+ *   heading     = "Ex Libris <name>'s library" (the H1) and one line saying where things stand
+ *   main column = Your books; for a new reader, one dashed area with the Upload button (the one action)
+ *   side panel  = Plate I, the hand-coloured engraving of the wyrm at the inkwell, then "How it works"
+ * TODO(library): once uploads exist, a returning reader gets a "Continue where you left off" bar above
+ * Your books (one row per PDF), and the panel shows stats instead of the steps; see docs/DESIGN.md.
  */
 export function LibraryPage() {
   usePageTitle('Library')
   const { theme } = useShell()
   const name = useDisplayName()
   const startUpload = useStartUpload()
-  const dark = theme === 'dark'
 
   return (
-    <main className="library">
-      <section className="lib-book">
-        <div className="lib-page lib-page-l">
-          {/* a bookplate is pasted inside a book's cover; "Ex Libris" means "from the library of" */}
-          <div className="ex-libris">
-            {/* the wyrm as the printer's mark, where an old bookplate has its device */}
-            <WyrmMark className="ex-libris-mark" />
-            <h1>
-              <span className="ex-libris-label">Ex Libris</span>{' '}
-              {/* the space keeps screen readers from reading "Ex LibrisAna" as one word */}
-              {name ? (
-                <span className="ex-libris-name">{name}</span>
-              ) : (
-                // still loading on a first visit: an unfilled bookplate's blank name line, not a guess
-                <span className="ex-libris-name is-blank" aria-hidden="true" />
-              )}
-            </h1>
-            <span className="ex-libris-rule" aria-hidden="true" />
-            <p className="ex-libris-facts">An empty shelf, for now.</p>
-          </div>
-          <span className="lib-folio" aria-hidden="true">— i —</span>
-        </div>
+    <main className="library-surround">
+      <div className="library">
+        <header className="library-head">
+          <h1>
+            {/* the space keeps screen readers from running "Ex Libris" and the name together */}
+            <span className="library-kicker">Ex Libris</span>{' '}
+            {name ? (
+              <span className="library-title">{name}’s library</span>
+            ) : (
+              // still loading on a first visit: an unfilled bookplate's blank name line, not a guess
+              <span className="library-title is-blank" aria-hidden="true" />
+            )}
+          </h1>
+          <p className="library-lede">No PDFs yet. Add one to get your first quiz.</p>
+        </header>
 
-        <div className="lib-page lib-page-r">
-          <span className="lib-running" aria-hidden="true">The Reading Room</span>
-          <div className="lib-window">
-            <figure className="lib-plate">
-              <img
-                src={dark ? stacksNight : stacksDay}
-                alt=""
-                width={1203}
-                height={1208}
-                decoding="async"
-              />
-            </figure>
-            <div className="lib-next">
-              {/* an empty library: the wyrm curled up asleep on its books, waiting */}
-              <InkWyrm mode="coil" width={84} height={76} cell={2} speed={0.7} className="lib-next-wyrm" />
-              <div>
-                <h2>Nothing on your shelves yet</h2>
-                <p>Upload a PDF and Bookwyrm will write your first quiz from it, with the page for every answer.</p>
-                <button type="button" className="lib-next-link" onClick={() => startUpload()}>
-                  <UploadIcon />
-                  Upload your first PDF
-                </button>
+        <div className="library-grid">
+          <section className="shelf" aria-labelledby="books-h">
+            <h2 id="books-h">Your books</h2>
+            <div className="shelf-empty">
+              {/* three faint book covers in the hero's leathers: where your PDFs will be shelved */}
+              <div className="shelf-ghosts" aria-hidden="true">
+                <span className="cover is-oxblood" />
+                <span className="cover is-green" />
+                <span className="cover is-navy" />
               </div>
+              <p className="shelf-empty-title">Your first book goes here</p>
+              <p className="shelf-empty-text">Upload a PDF and Bookwyrm writes a quiz from it, with the page for every answer.</p>
+              <button type="button" className="btn btn-primary btn-lg" onClick={() => startUpload()}>
+                <UploadIcon />
+                Upload your first PDF
+              </button>
             </div>
-          </div>
-          <p className="lib-caption">Your stacks by {dark ? 'lamplight' : 'daylight'}.</p>
-        </div>
-      </section>
+          </section>
 
-      <section className="catalogue" aria-labelledby="catalogue-h">
-        <h2 id="catalogue-h">Catalogue</h2>
-        <p className="catalogue-lede">Every PDF you add gets a card here.</p>
-        <ul className="catalogue-cards">
-          {/* an empty, unfilled card shows what a filed one will hold */}
-          <li className="cat-card is-blank">
-            <span className="cat-card-title">Your first PDF</span>
-            <span className="cat-card-line">Title, pages and topics</span>
-            <span className="cat-card-line">Passing confidence and quizzes taken</span>
-            <span className="cat-card-hole" aria-hidden="true" />
-          </li>
-        </ul>
-      </section>
+          <aside className="side-panel" aria-labelledby="how-h">
+            {/* a framed plate, as the hero frames its scene; decorative, so the caption is hidden with it */}
+            <figure className="plate" aria-hidden="true">
+              <ReadingDesk scene="inkwell" className="plate-art" />
+              <figcaption>
+                <span className="plate-no">Plate I</span>
+                <span className="plate-cap">The wyrm at the inkwell, by {theme === 'dark' ? 'lamplight' : 'daylight'}.</span>
+              </figcaption>
+            </figure>
+            <h2 id="how-h">How it works</h2>
+            <ol className="how-steps">
+              <li><strong>Upload a PDF</strong>Lecture notes, a textbook chapter, a paper.</li>
+              <li><strong>Take the quiz</strong>Bookwyrm writes the questions from your PDF.</li>
+              <li><strong>Check the page</strong>Every answer shows the page it came from.</li>
+            </ol>
+          </aside>
+        </div>
+      </div>
     </main>
   )
 }
