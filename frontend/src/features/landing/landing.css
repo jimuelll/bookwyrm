@@ -1,35 +1,5 @@
-/* Landing page: pinned app bar, then an open storybook spread over the painted library.
+/* Landing page: an open storybook spread over the painted library.
    Left page = what Bookwyrm does; right page = a framed window (plate) onto the live scene. */
-
-/* ---------- pinned app bar ---------- */
-.bar {
-  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
-  background: var(--bar); border-bottom: 1px solid var(--rule);
-  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
-}
-.bar::before { /* paints the safe-area band above the sticky bar */
-  content: ''; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); background: var(--bar);
-}
-.bar-in { max-width: 1320px; height: var(--bar-h); margin-inline: auto; display: flex; align-items: center; gap: 12px; }
-.brand { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; margin-right: auto; text-decoration: none; font-family: var(--font-caps); font-size: 23px; letter-spacing: .04em; }
-.brand svg { width: 26px; height: 26px; color: var(--accent); }
-.bar nav { display: flex; align-items: center; gap: 2px; font-size: 17px; }
-.bar nav a, .nav-btn { text-decoration: none; color: var(--muted); padding: 10px 12px; border-radius: 2px; transition: color .2s; }
-.bar nav a:hover, .nav-btn:hover { color: var(--ink); }
-.nav-btn { min-height: 44px; background: none; border: 0; font: inherit; cursor: pointer; }
-.icon-btn { width: 44px; height: 44px; flex: none; display: inline-grid; place-items: center; border: 1px solid var(--rule); border-radius: 50%; background: transparent; color: var(--ink); cursor: pointer; transition: border-color .2s; }
-.icon-btn:hover { border-color: var(--accent); }
-.icon-btn svg { width: 18px; height: 18px; }
-
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 44px; padding: 0 20px; border-radius: 2px; text-decoration: none; font-family: var(--font-body); font-size: 17px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: filter .2s, transform .15s; }
-.btn:active { transform: translateY(1px); }
-.btn svg { width: 18px; height: 18px; flex: none; }
-.btn-primary { background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent); }
-.btn-primary:hover { filter: brightness(1.08); }
-.btn-lg { min-height: 52px; padding: 0 26px; font-size: 18px; }
-/* the bar's Upload copy hides while the hero's own Upload button is in view */
-.bar-cta { transition: opacity .25s ease, visibility 0s linear 0s, filter .2s, transform .15s; }
-.bar-cta.is-hidden { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .25s ease, visibility 0s linear .25s; }
 
 /* ---------- hero ---------- */
 .hero {
@@ -92,8 +62,6 @@
 }
 .lede { margin: 0; text-wrap: pretty; font-size: clamp(17px, 1.4vw, 20px); line-height: 1.6; color: var(--muted); max-width: 31rem; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; }
-.text-link { min-height: 44px; display: inline-flex; align-items: center; font-family: var(--font-display); font-style: italic; font-size: 19px; text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 5px; transition: text-decoration-color .2s; }
-.text-link:hover { text-decoration-color: var(--accent); }
 
 .proof { flex: 1 1 100%; margin: 0; font-size: 16px; line-height: 1.45; color: var(--muted); }
 
@@ -210,44 +178,11 @@
 .how h3 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 26px; line-height: 1.2; }
 .how p { margin: 0; color: var(--muted); }
 
-/* step artifacts: miniature paper objects drawn with the same tokens as the real screens */
-.art {
-  height: 188px; box-sizing: border-box; display: flex; flex-direction: column; gap: 7px; padding: 14px 16px; overflow: hidden;
-  background: var(--paper), var(--page); border: 1px solid var(--rule); border-radius: 2px;
-  font-size: 14px; line-height: 1.3; color: var(--ink);
-}
-.art-run { font-family: var(--font-caps); font-size: 13px; letter-spacing: .08em; color: var(--muted); text-align: center; }
-.art-h { display: flex; align-items: center; gap: 8px; margin-top: 2px; font-family: var(--font-display); font-size: 17px; line-height: 1.15; }
-.art-h.sub { font-size: 15px; }
-.art-tag { flex: none; padding: 1px 4px; border: 1px solid var(--accent); border-radius: 2px; font-family: var(--font-caps); font-size: 11px; line-height: 1.2; letter-spacing: .04em; color: var(--accent); }
-.art-line { flex: none; height: 5px; border-radius: 1px; background: var(--rule); }
-.art-line.short { width: 62%; }
-.art-folio { margin-top: auto; align-self: center; padding: 0 6px; border-bottom: 1px solid var(--accent); font-family: var(--font-display); font-style: italic; font-size: 14px; }
-.art-page { padding-inline: 22px; }
-
-.art-qtext { font-family: var(--font-display); font-size: 16px; line-height: 1.25; }
-.art-opt { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid var(--rule); border-radius: 2px; }
-.art-opt svg { width: 14px; height: 14px; flex: none; color: var(--correct); }
-.art-opt.right { border-color: var(--correct); }
-.art-chip { align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; margin-top: auto; padding: 2px 8px; border: 1px solid var(--accent); border-radius: 2px; font-family: var(--font-display); font-style: italic; font-size: 15px; color: var(--accent); }
-.art-chip svg { width: 13px; height: 13px; }
-
-.art-topic { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-bottom: 5px; border-bottom: 1px solid var(--rule); }
-.art-topic-n { display: flex; flex-direction: column; font-size: 15px; }
-.art-topic-n small { font-family: var(--font-display); font-style: italic; font-size: 13px; color: var(--muted); }
-.art-topic-s { font-family: var(--font-caps); font-size: 14px; color: var(--incorrect); }
-.art-btn { margin-top: auto; align-self: flex-start; padding: 5px 12px; background: var(--accent); color: var(--accent-ink); border-radius: 2px; font-weight: 500; font-size: 14px; }
-
 /* ---------- responsive ---------- */
 @media (max-width: 1100px) {
-  .bar nav a.hide-md { display: none; }
   .plate-card { right: 54px; width: calc(100% - 106px); }
 }
 @media (max-width: 900px) {
-  .brand { font-size: 20px; }
-  .bar nav a.hide-sm { display: none; }
-  .bar .btn-primary .label { display: none; }
-  .bar .btn-primary { width: 44px; padding: 0; }
   .hero { padding-block: 12px 10px; }
   .book { min-height: 0; grid-template-columns: 1fr; }
   .book::after, .running, .folio, .caption { display: none; }
@@ -268,8 +203,6 @@
   .copy { gap: 18px; }
   .actions .btn-lg { flex: 1 1 100%; }
   .how ol { grid-template-columns: 1fr; max-width: 30rem; width: 100%; margin-inline: auto; }
-  .art { height: auto; }
-  .art-folio, .art-chip, .art-btn { margin-top: 4px; }
 }
 @media (max-width: 400px) {
   .sample { padding-inline: 14px; }
@@ -277,6 +210,6 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .scroll-hint svg { animation: none; }
-  .btn, .icon-btn, .bar nav a, .nav-btn, .text-link, .bar-cta, .bar-cta.is-hidden, .opt, .cite::after, .next svg, .sample-trigger { transition: none; }
+  .opt, .cite::after, .next svg, .sample-trigger { transition: none; }
   .sample { animation: none; }
 }

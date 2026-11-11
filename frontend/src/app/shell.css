@@ -1,0 +1,81 @@
+/* App shell: the pinned bar shared by every page, plus the plain page sheet used by inner pages.
+   The bar reads like a book's running head: small-caps labels between hairline dividers, a double
+   rule underneath, and a short red silk bookmark (the wyrm's tail ribbon) over the current page. */
+
+.bar {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  background: var(--paper), var(--bar); border-bottom: 3px double var(--rule);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.bar::before { /* paints the safe-area band above the sticky bar */
+  content: ''; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); background: var(--bar);
+}
+.bar-in { max-width: 1320px; height: var(--bar-h); margin-inline: auto; display: flex; align-items: center; gap: 12px; }
+
+.brand { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; margin-right: auto; text-decoration: none; font-family: var(--font-caps); font-size: 23px; letter-spacing: .04em; }
+.brand svg { width: 26px; height: 26px; color: var(--accent); flex: none; }
+
+/* nav: full bar height so the ribbon can hang from the bottom rule */
+.bar nav { align-self: stretch; display: flex; align-items: stretch; margin-right: 6px; }
+.bar nav a {
+  position: relative; display: flex; align-items: center; padding: 0 16px;
+  font-family: var(--font-caps); font-size: 17px; letter-spacing: .06em; text-decoration: none;
+  color: var(--muted); transition: color .2s;
+}
+.bar nav a:hover, .bar nav a[aria-current='page'] { color: var(--ink); }
+.bar nav a + a::before { /* hairline divider between labels */
+  content: ''; position: absolute; left: 0; top: 50%; width: 1px; height: 16px; translate: 0 -50%; background: var(--rule);
+}
+/* current page: a short bookmark ribbon tucked in from the bar's top edge, like a ribbon marker
+   peeking out of a closed book. It stays inside the bar, above the label. */
+.bar nav a[aria-current='page']::after {
+  content: ''; position: absolute; left: 50%; top: 0; width: 12px; height: 15px; translate: -50% 0;
+  background: var(--ribbon);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 70%, 0 100%);
+}
+
+.bar-login { padding: 0 18px; }
+
+/* the bar's Upload copy hides while the landing hero's own Upload button is in view */
+.bar-cta { transition: opacity .25s ease, visibility 0s linear 0s, filter .2s, transform .15s; }
+.bar-cta.is-hidden { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .25s ease, visibility 0s linear .25s; }
+
+/* account: the reader's initial; the card is a small loose page under it */
+.account { position: relative; }
+.account-btn { font-family: var(--font-caps); font-size: 19px; line-height: 1; color: var(--accent); }
+.account-card {
+  position: absolute; right: 0; top: calc(100% + 12px); z-index: 30; width: max-content; max-width: min(300px, calc(100vw - 32px));
+  display: grid; gap: 12px; padding: 14px 16px;
+  background: var(--paper), var(--page); border: 1px solid var(--frame); border-radius: 2px;
+  box-shadow: 0 0 0 3px var(--page), 0 0 0 4px var(--frame), 0 18px 36px -14px rgb(0 0 0 / .5);
+}
+.account-who { margin: 0; display: grid; font-size: 16px; line-height: 1.35; }
+.account-who span { font-family: var(--font-caps); font-size: 14px; letter-spacing: .06em; color: var(--muted); }
+.account-who strong { font-weight: 500; overflow-wrap: anywhere; }
+
+/* inner pages (About, Library): content on the page background, centred to the content width */
+.sheet {
+  max-width: 1120px; margin-inline: auto; box-sizing: content-box;
+  padding: clamp(40px, 6vw, 88px) max(16px, env(safe-area-inset-right, 0px)) clamp(48px, 8vw, 104px) max(16px, env(safe-area-inset-left, 0px));
+}
+.gate { display: grid; justify-items: center; gap: 14px; text-align: center; }
+.gate h1 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: clamp(30px, 3.4vw, 46px); line-height: 1.1; }
+.gate p { margin: 0 0 6px; color: var(--muted); }
+
+@media (max-width: 900px) {
+  .brand { font-size: 20px; }
+  .bar .btn-primary .label { display: none; }
+  .bar .btn-primary { width: 44px; padding: 0; }
+  .bar nav a { padding: 0 12px; }
+}
+@media (max-width: 480px) {
+  .bar-in { gap: 8px; }
+  .bar nav { margin-right: 0; }
+  .bar nav a { padding: 0 10px; }
+  /* the wordmark goes; the wyrm mark stays and the link keeps its name for screen readers */
+  .brand-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .bar-login { padding: 0 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar nav a, .bar-cta, .bar-cta.is-hidden { transition: none; }
+}

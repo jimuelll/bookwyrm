@@ -50,7 +50,7 @@ This document describes how the system is built and why. The PRD describes what 
 
 | Layer | Choice | Rationale |
 |---|---|---|
-| Frontend | React, TypeScript, Vite, TanStack Query, Tailwind | Fast iteration; server state handled by TanStack Query |
+| Frontend | React, TypeScript, Vite, React Router, TanStack Query, Tailwind | Fast iteration; React Router for pages; server state handled by TanStack Query |
 | Backend | Python 3.12, FastAPI, Pydantic v2 | Strongest AI/PDF ecosystem; typed schemas double as validation |
 | Database | PostgreSQL + pgvector | One store for relational data and vectors; supports hybrid search |
 | PDF parsing | PyMuPDF (Docling/Unstructured if layout or tables need it) | Fast, page-accurate extraction |
@@ -341,7 +341,8 @@ bookwyrm/
 │   └── pyproject.toml
 ├── frontend/
 │   ├── src/
-│   │   ├── pages/          # Upload, Library, Quiz, Results, Progress, Chat
+│   │   ├── app/            # router layout, app bar, account menu, login-required wrapper
+│   │   ├── features/       # one folder per page/area: landing, about, auth, library (later quiz, results, ...)
 │   │   ├── components/
 │   │   ├── api/            # typed client
 │   │   └── hooks/

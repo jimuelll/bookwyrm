@@ -11,9 +11,10 @@ describe('LandingPage', () => {
     expect(screen.getByRole('heading', { level: 1 })).not.toBeEmptyDOMElement()
   })
 
-  it('offers an Upload a PDF action', () => {
+  it('offers Get started, not Upload, to a logged-out visitor', () => {
     render(<App />)
-    expect(screen.getAllByRole('button', { name: /upload a pdf/i }).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Get started' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /upload a pdf/i })).not.toBeInTheDocument()
   })
 
   it('switches from night to day mode and back to the opposite label', async () => {
@@ -28,10 +29,10 @@ describe('LandingPage', () => {
     expect(screen.getByRole('button', { name: 'Switch to day mode' })).toBeInTheDocument()
   })
 
-  it('"How it works" in the bar links to a section that exists', () => {
+  it('the hero "How it works" link points to a section that exists', () => {
     render(<App />)
-    const link = within(screen.getByRole('navigation', { name: 'Main' })).getByRole('link', { name: 'How it works' })
-    const target = document.querySelector(link.getAttribute('href')!)
+    const link = screen.getByRole('link', { name: 'How it works' })
+    const target = document.getElementById(new URL(link.getAttribute('href')!, 'http://x').hash.slice(1))
     expect(target).toBeInTheDocument()
     expect(within(target as HTMLElement).getAllByRole('heading', { level: 3 }).length).toBeGreaterThan(0)
   })

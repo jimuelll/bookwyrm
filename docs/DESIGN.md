@@ -1,6 +1,6 @@
 # Bookwyrm Design
 
-**Status:** v1, derived from the shipped landing page (`frontend/src/features/landing`, `frontend/src/scene`).
+**Status:** v1, derived from the shipped pages (`frontend/src/app`, `frontend/src/features`, `frontend/src/scene`).
 **Related:** [PRD.md](./PRD.md) · [ARCHITECTURE.md](./ARCHITECTURE.md)
 
 This file records how Bookwyrm looks and why, so new screens (Library, Quiz, Results, Progress) feel like the same product. The tokens live in code at `frontend/src/styles/tokens.css`; this document explains them.
@@ -39,6 +39,7 @@ Two themes designed together. Day is parchment and ink; night is dark vellum by 
 | `--surround` | `rgb(34 22 12 / .6)` | `rgb(6 4 3 / .62)` | Dim over the scene around the book |
 | `--on-surround` | `#F2E9D5` | `#EEE2CA` | Text on the dimmed scene |
 | `--page-shade` | `rgb(92 64 34 / .16)` | `rgb(0 0 0 / .35)` | Gutter and page-edge shading |
+| `--ribbon` | `#8E2A2A` | `#A8383A` | The wyrm's red silk bookmark: current page in the bar (decorative only) |
 
 Rules:
 - Text pairs meet WCAG AA, measured against the worst case (paper grain plus gutter shade): muted is at least 5:1 on page and bg in both themes; accent-ink on accent at least 6:1.
@@ -73,12 +74,17 @@ Book conventions we use (each must encode something true):
 
 ## 4. Layout
 
-- **Pinned app bar** (`.bar`), always at the top: brand · nav · theme toggle · primary "Upload a PDF". 64px tall (56px under 900px). Links collapse in stages (Evaluation under 1100px, How it works under 900px); on phones the upload button becomes icon-only with an accessible name.
+- **Pinned app bar** (`.bar`, `src/app/shell.css`), on every page, reading like a book's running head. 64px tall (56px under 900px), paper-grain background, a 3px double rule underneath.
+  - **Logged out:** brand · Home · About · Log in (outline button) · theme toggle.
+  - **Logged in:** brand · Library · Upload a PDF (the one primary button) · account (the reader's initial; a small paper card with their email and Log out) · theme toggle.
+  - Nav labels are IM Fell SC with hairline dividers between them. The **current page** is marked by ink colour plus a short red bookmark ribbon (`--ribbon`, swallowtail cut) tucked in from the bar's top edge above the label; it never hangs outside the bar.
+  - Under 900px the Upload button becomes icon-only with an accessible name; under 480px the wordmark is visually hidden (the wyrm mark stays, the link keeps its name).
+- **Pages:** `/` landing, `/about`, `/library` (login required; logged out it shows "Log in to see your library"). Inner pages use `.sheet`: content width on the page background, no card around the whole page.
 - **Content width:** 1320px max for the book spread, 1120px for content sections. Side gutter `max(16px, env(safe-area-inset-*))`.
 - **The book spread** (landing hero): a two-column grid (left page 1fr, right page 1.08fr) with a shaded gutter. Left page holds the copy; right page is paper with a transparent window (the plate) cut by CSS mask, framed by a double rule. The scene shows through the plate and, dimmed by `--surround`, around the book.
 - **Phones (≤ 900px):** the spread stacks: copy page first (headline, body, CTA), then the plate window with the sample-question tab on the paper below it; folios, running head and caption hide; the primary button goes full width; three-step lists stack.
 - Spacing follows a 4/8px rhythm; section padding uses `clamp(48px, 8vw, 104px)`.
-- **Product at a glance:** the hero plate carries a "Try a sample question" tab that opens a real, interactive question with its citation, so the painting stays clean until asked. The app bar hides its Upload button while the hero's is on screen.
+- **Product at a glance:** the hero plate carries a "Try a sample question" tab that opens a real, interactive question with its citation, so the painting stays clean until asked. Logged out, the hero's button is **Get started** (opens the login modal on sign-up, then continues to the Library); logged in it is **Upload a PDF**, and the bar hides its own Upload while the hero's is on screen.
 
 ## 5. Components (current)
 
@@ -86,11 +92,13 @@ Book conventions we use (each must encode something true):
 |---|---|
 | Button, primary (`.btn-primary`) | Accent fill, 2px radius, 44px min height (52px `.btn-lg` in heroes), EB Garamond 500, upload icon leading. Hover brightens; press nudges 1px. |
 | Text link (`.text-link`) | IM Fell italic with a rule-coloured underline that turns accent on hover. Used for secondary actions instead of a second button. |
+| Button, outline (`.btn-outline`) | Transparent with a rule border that turns accent on hover. The secondary action beside a primary (Log in in the bar, Continue with Google). |
 | Icon button (`.icon-btn`) | 44px circle, rule border; always has `aria-label`. Theme toggle shows the icon of the mode you will switch to. |
 | Sample question (`.sample`) | A loose page over the plate: question, four options, verdict, citation (`.cite`) that swaps the options for the source passage with the supporting sentence marked. Opened from `.sample-trigger`; Esc or × closes and returns focus. |
 | Plate (`.page-r` + `.plate-frame`) | Framed window onto the scene, with running head, caption, and a Pause/Play control. |
 | Section list (`.how`) | HTML/CSS paper artifact (`.art`), then Roman numeral, display H3, muted paragraph. |
-| Login modal (`.auth`) | Native `<dialog>` opened with `showModal()`, framed like the sample card over a dimmed backdrop. Brand + ×, display H2 ("Log in" / "Create your account"), a muted line saying why it opened, **Continue with Google** as an outline button (`.btn-outline`, Google's own coloured "G" per their branding rules), an italic "or" rule, then email + password with small-caps labels and one primary submit. A `.text-link` switches between log in and sign up. Errors are one line in `--incorrect` (`role="alert"`). Opened by the bar's Log in and by any gated action (Upload a PDF); Esc, × or the backdrop closes it and focus returns to the opener. |
+| Feature row (`.feature`, About) | Display H2 and muted paragraphs on one side, a paper artifact (`.art`) on the other, sides alternating per row, rows separated by rules. Artifacts are labelled "Sample" and `aria-hidden`; the text carries the meaning. |
+| Login modal (`.auth`) | Native `<dialog>` opened with `showModal()`, framed like the sample card over a dimmed backdrop. Brand + ×, display H2 ("Log in" / "Create your account"), a muted line saying why it opened, **Continue with Google** as an outline button (`.btn-outline`, Google's own coloured "G" per their branding rules), an italic "or" rule, then email + password with small-caps labels and one primary submit. A `.text-link` switches between log in and sign up. Errors are one line in `--incorrect` (`role="alert"`). Opened by the bar's Log in (log-in form) and by any gated action (Get started opens on sign-up); Esc, × or the backdrop closes it and focus returns to the opener. |
 
 Icons: one line set (`src/components/icons.tsx`), 1.6px stroke, round caps, 18px in controls. Decorative icons are `aria-hidden`; the control carries the name.
 

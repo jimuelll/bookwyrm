@@ -1,5 +1,5 @@
 /* Login modal: a single loose page laid over the dimmed app, framed like the sample question card.
-   Relies on .btn / .btn-primary / .text-link from the shared component styles. */
+   Uses .btn / .btn-outline / .text-link from src/styles/components.css. */
 
 .auth {
   width: min(420px, calc(100% - 32px)); max-height: calc(100dvh - 32px); margin: auto; padding: 0;
@@ -26,10 +26,6 @@
 .auth h2 { margin: 4px 0 0; font-family: var(--font-display); font-weight: 400; font-size: 30px; line-height: 1.15; }
 .auth-reason { margin: -6px 0 2px; font-size: 17px; line-height: 1.45; color: var(--muted); }
 
-/* the secondary sign-in: paper with a rule border, so the accent stays on the one primary button */
-.btn-outline { background: transparent; color: var(--ink); border: 1px solid var(--rule); }
-.btn-outline:hover { border-color: var(--accent); }
-.btn:disabled { cursor: progress; opacity: .7; }
 .auth-google svg { width: 18px; height: 18px; }
 
 .auth-or { display: flex; align-items: center; gap: 12px; margin: 0; font-family: var(--font-display); font-style: italic; font-size: 16px; color: var(--muted); }

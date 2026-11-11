@@ -1,0 +1,96 @@
+/* About page: what Bookwyrm does, as alternating text + paper-artifact rows, then how it is built.
+   Rows are separated by rules and paper tone, not cards or shadows (docs/DESIGN.md §5). */
+
+.about h1, .about h2, .about h3 { font-family: var(--font-display); font-weight: 400; margin: 0; }
+.about p { margin: 0; }
+
+.about-head { max-width: 42rem; display: grid; gap: 18px; }
+.about h1 { font-size: clamp(36px, 4.2vw, 58px); line-height: 1.08; text-wrap: balance; }
+/* drop cap, as on the landing hero: first letter of the first paragraph under the page headline */
+.about-lede { font-size: clamp(17px, 1.4vw, 20px); line-height: 1.6; color: var(--muted); text-wrap: pretty; }
+.about-lede::first-letter {
+  float: left; margin: .14em .3em 0 0; padding: .14em .14em .02em;
+  font-family: var(--font-display); font-size: 3.55em; line-height: .86; color: var(--accent);
+  border: 3px double var(--frame);
+}
+
+/* feature rows: text on one side, artifact on the other, swapping sides each row */
+.features { margin-top: clamp(40px, 6vw, 72px); border-top: 1px solid var(--rule); }
+.feature {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center;
+  gap: clamp(28px, 5vw, 72px); padding-block: clamp(36px, 5vw, 64px); border-bottom: 1px solid var(--rule);
+}
+.feature:nth-child(even) .feature-art { order: -1; }
+.feature-text { display: grid; gap: 12px; max-width: 32rem; }
+.feature h2 { font-size: clamp(28px, 3vw, 40px); line-height: 1.12; margin-bottom: 4px; }
+.feature p { color: var(--muted); }
+.feature strong { color: var(--ink); font-weight: 500; }
+.feature-art { max-width: 30rem; width: 100%; justify-self: center; }
+.feature-art .art { height: auto; min-height: 236px; gap: 9px; padding: 18px 20px; font-size: 15px; }
+
+/* I. modes: two small sheets side by side */
+.art-modes { flex-direction: row; gap: 12px; padding: 14px; }
+.mode { flex: 1; display: flex; flex-direction: column; gap: 9px; padding: 12px; border: 1px solid var(--rule); border-radius: 2px; }
+.mode .art-run { text-align: left; color: var(--accent); }
+.mode-row { display: flex; align-items: flex-start; gap: 7px; line-height: 1.3; }
+.mode-row svg { width: 14px; height: 14px; flex: none; margin-top: 2px; color: var(--correct); }
+.mode-row.no { color: var(--muted); }
+.mode-row.no svg { color: var(--muted); }
+
+/* II. stats: confidence figure + bar, then a strong and a weak topic */
+.conf { display: flex; align-items: center; gap: 14px; margin-top: 4px; }
+.conf-n { font-family: var(--font-display); font-size: 44px; line-height: 1; color: var(--accent); }
+.conf-l { display: flex; flex-direction: column; font-family: var(--font-caps); font-size: 15px; letter-spacing: .05em; }
+.conf-l small { font-family: var(--font-display); font-style: italic; font-size: 14px; letter-spacing: 0; color: var(--muted); }
+.conf-bar { height: 6px; border: 1px solid var(--rule); border-radius: 1px; }
+.conf-bar > span { display: block; height: 100%; background: var(--accent); }
+.topic-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--rule); }
+.topic-row > span { display: flex; flex-direction: column; }
+.topic-row small { font-family: var(--font-display); font-style: italic; font-size: 13px; color: var(--muted); }
+.topic-row b { font-family: var(--font-caps); font-weight: 400; font-size: 14px; }
+.topic-row.strong b { color: var(--correct); }
+.topic-row.weak b { color: var(--incorrect); }
+
+/* III. share: the link, then a leaderboard where equal scores share a rank */
+.share-link { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 6px 10px; border: 1px dashed var(--frame); border-radius: 2px; font-family: var(--font-display); font-style: italic; color: var(--accent); }
+.share-link small { font-family: var(--font-body); font-style: normal; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.board { list-style: none; margin: 4px 0 0; padding: 0; display: grid; }
+.board li { display: grid; grid-template-columns: 28px 1fr auto; align-items: baseline; padding: 6px 2px; border-bottom: 1px solid var(--rule); }
+.board-rank { font-family: var(--font-caps); color: var(--muted); }
+.board-score { font-family: var(--font-caps); }
+.board li.you { color: var(--accent); }
+.board li.you .board-rank { color: var(--accent); }
+
+/* IV. citation: the passage with the supporting sentence marked */
+.cite-text { padding: 2px 0 2px 14px; border-left: 3px double var(--frame); font-size: 16px; line-height: 1.5; }
+.cite-text mark { background: var(--mark); color: var(--ink); padding: 0 .1em; }
+.cite-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; }
+.cite-foot .art-chip { margin-top: 0; }
+.cite-ok { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-caps); font-size: 14px; letter-spacing: .04em; color: var(--correct); }
+.cite-ok svg { width: 14px; height: 14px; }
+
+/* under the hood */
+.internals { margin-top: clamp(48px, 7vw, 88px); display: grid; gap: 10px; }
+.internals h2 { font-size: clamp(28px, 3vw, 40px); line-height: 1.12; }
+.internals-note { color: var(--muted); font-style: italic; }
+.internals ul { list-style: none; margin: 20px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: clamp(20px, 3vw, 36px); }
+.internals li { display: grid; align-content: start; gap: 6px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.internals h3 { font-family: var(--font-caps); font-size: 17px; letter-spacing: .06em; color: var(--accent); }
+.internals li p { font-size: 16px; line-height: 1.55; color: var(--muted); }
+
+.about-end { margin-top: clamp(56px, 8vw, 96px); padding-top: clamp(36px, 5vw, 56px); border-top: 3px double var(--rule); display: grid; justify-items: center; gap: 20px; text-align: center; }
+.about-end h2 { font-size: clamp(28px, 3vw, 40px); line-height: 1.12; }
+
+@media (max-width: 1000px) {
+  .internals ul { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .feature { grid-template-columns: 1fr; }
+  .feature:nth-child(even) .feature-art { order: 0; }
+  .feature-art { justify-self: start; }
+}
+@media (max-width: 560px) {
+  .internals ul { grid-template-columns: 1fr; }
+  .art-modes { flex-direction: column; }
+  .about-end .btn { width: 100%; }
+}

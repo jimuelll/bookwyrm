@@ -37,8 +37,12 @@ if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
   }
 }
 
+// jsdom doesn't scroll; route changes call this
+window.scrollTo = () => {}
+
 afterEach(() => {
   cleanup()
+  window.history.replaceState(null, '', '/') // jsdom keeps the URL between tests; routes read it
   localStorage.clear()
   delete document.documentElement.dataset.theme
   mockMatchMedia()

@@ -8,6 +8,7 @@ interface Props {
   open: boolean
   /** Why the modal opened, e.g. "You need an account to upload a PDF." Omitted when opened from the Log in link. */
   reason?: string
+  initialMode?: EmailMode
   onClose: () => void
   onSignedIn: (user: User) => void
 }
@@ -17,7 +18,7 @@ interface Props {
  * A native <dialog> opened with showModal(), so the browser handles the focus trap, Esc,
  * hiding the page behind it from screen readers, and returning focus to the opener on close.
  */
-export function LoginModal({ open, reason, onClose, onSignedIn }: Props) {
+export function LoginModal({ open, reason, initialMode, onClose, onSignedIn }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {
@@ -38,13 +39,13 @@ export function LoginModal({ open, reason, onClose, onSignedIn }: Props) {
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       {/* the form only exists while open, so every opening starts clean */}
-      {open && <AuthForm reason={reason} onClose={onClose} onSignedIn={onSignedIn} />}
+      {open && <AuthForm reason={reason} initialMode={initialMode} onClose={onClose} onSignedIn={onSignedIn} />}
     </dialog>
   )
 }
 
-function AuthForm({ reason, onClose, onSignedIn }: Omit<Props, 'open'>) {
-  const [mode, setMode] = useState<EmailMode>('login')
+function AuthForm({ reason, initialMode = 'login', onClose, onSignedIn }: Omit<Props, 'open'>) {
+  const [mode, setMode] = useState<EmailMode>(initialMode)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const uid = useId()

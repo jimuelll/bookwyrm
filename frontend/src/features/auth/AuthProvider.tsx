@@ -1,19 +1,19 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AuthContext, type Auth, type User } from './authContext'
+import { AuthContext, type Auth, type LoginPrompt, type User } from './authContext'
 import { LoginModal } from './LoginModal'
 
 /** Holds who is logged in and owns the one login modal, so any screen can gate an action behind it. */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [modal, setModal] = useState<{ open: boolean; reason?: string }>({ open: false })
+  const [modal, setModal] = useState<{ open: boolean } & LoginPrompt>({ open: false })
   // the gated action waiting for a login (e.g. "upload"); dropped if the modal is dismissed
   const pending = useRef<(() => void) | null>(null)
 
   const requireAuth = useCallback<Auth['requireAuth']>(
-    (action, reason) => {
+    (action, prompt) => {
       if (user) return action()
       pending.current = action
-      setModal({ open: true, reason })
+      setModal({ open: true, ...prompt })
     },
     [user],
   )
@@ -47,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={value}>
       {children}
-      <LoginModal open={modal.open} reason={modal.reason} onClose={handleClose} onSignedIn={handleSignedIn} />
+      <LoginModal open={modal.open} reason={modal.reason} initialMode={modal.mode} onClose={handleClose} onSignedIn={handleSignedIn} />
     </AuthContext.Provider>
   )
 }

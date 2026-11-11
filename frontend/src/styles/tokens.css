@@ -16,6 +16,7 @@
   --accent-ink: #f2e9d5;
   --correct: #33591f; /* quiz states: always paired with an icon and a word */
   --incorrect: #8e2a2a;
+  --ribbon: #8e2a2a; /* the wyrm's red silk bookmark: marks the current page in the bar */
   --mark: rgb(46 91 68 / 0.17); /* highlight behind a cited sentence */
   --surround: rgb(34 22 12 / 0.6);
   --on-surround: #f2e9d5;
@@ -35,6 +36,7 @@
   --accent-ink: #170f08;
   --correct: #a9c77e;
   --incorrect: #ec9a88;
+  --ribbon: #a8383a;
   --mark: rgb(227 166 79 / 0.24);
   --surround: rgb(6 4 3 / 0.62);
   --on-surround: #eee2ca;

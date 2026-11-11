@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDownIcon, PauseIcon, PlayIcon, QuizIcon, UploadIcon } from '../../components/icons'
+import { Link } from 'react-router'
+import { ArrowRightIcon, ChevronDownIcon, PauseIcon, PlayIcon, QuizIcon, UploadIcon } from '../../components/icons'
 import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion'
 import type { Theme } from '../../hooks/useTheme'
 import type { StacksScene } from '../../scene/stacksScene'
@@ -18,12 +19,13 @@ interface Props {
   theme: Theme
   /** Reports whether the hero's Upload button is on screen (the app bar hides its copy meanwhile). */
   onCtaVisibleChange?: (visible: boolean) => void
-  /** Starts an upload; logged out, it opens the login modal first. */
-  onUpload: () => void
+  loggedIn: boolean
+  /** Logged in: start an upload. Logged out ("Get started"): open the login modal on sign-up first. */
+  onCta: () => void
 }
 
 /** The storybook spread: copy on the left page, the live painted library framed on the right. */
-export function Hero({ theme, onCtaVisibleChange, onUpload }: Props) {
+export function Hero({ theme, loggedIn, onCtaVisibleChange, onCta }: Props) {
   const dark = theme === 'dark'
   const reducedMotion = usePrefersReducedMotion()
   // null = follow the reduced-motion setting; true/false = the reader pressed Play/Pause
@@ -110,9 +112,10 @@ export function Hero({ theme, onCtaVisibleChange, onUpload }: Props) {
               in it, checks each one, and shows you the page it came from.
             </p>
             <div className="actions">
-              <button type="button" className="btn btn-primary btn-lg" ref={ctaRef} onClick={onUpload}>
-                <UploadIcon />
-                Upload a PDF
+              <button type="button" className="btn btn-primary btn-lg" ref={ctaRef} onClick={onCta}>
+                {loggedIn ? <UploadIcon /> : null}
+                {loggedIn ? 'Upload a PDF' : 'Get started'}
+                {loggedIn ? null : <ArrowRightIcon />}
               </button>
               {EVAL_PROOF && <p className="proof">{EVAL_PROOF}</p>}
             </div>
@@ -153,10 +156,10 @@ export function Hero({ theme, onCtaVisibleChange, onUpload }: Props) {
         </div>
       </div>
 
-      <a className="scroll-hint" href="#how">
+      <Link className="scroll-hint" to={{ hash: '#how' }}>
         How it works
         <ChevronDownIcon />
-      </a>
+      </Link>
     </section>
   )
 }
