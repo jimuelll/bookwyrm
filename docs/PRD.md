@@ -152,6 +152,8 @@ A short quiz on one weak topic, started by the user. It is a one-off: nothing is
 - **Email sign-up needs confirmation:** after signing up the modal says "Check your email"; the link confirms the address, logs the reader in and continues where they were going. The email can be resent.
 - **Forgot password:** "Forgot password?" emails a reset link (without revealing whether the address has an account); the link opens a page to set a new password.
 - **Stay logged in:** the session survives reloads and browser restarts until the reader logs out.
+- **Display name:** shown to others on quiz leaderboards. It starts as the reader's Google name (or the part of their email before the @) and can be changed in **Settings** (1-40 characters, no invisible characters).
+- **Logged-in home is the Library:** the landing page is for visitors; logged in, `/` and the logo go to the Library.
 - If a logged-out user starts a gated action (e.g. Upload a PDF, opening a share link), the modal opens and the action continues after they log in.
 - Documents are private to their owner, except that a **review-mode** share link also gives takers read-only access to the PDF while the link is valid (7.11). Quizzes are private unless shared by link.
 

@@ -64,7 +64,7 @@ This document describes how the system is built and why. The PRD describes what 
 | LLM / embeddings | Gemini (primary) and Groq (fallback) behind a provider interface, called over REST with httpx | Free tiers; swappable for comparison; no vendor SDKs to keep in step |
 | Structured output | Instructor / provider-native structured output + Pydantic | Fewer hand-rolled retries |
 | Jobs | FastAPI background tasks → Postgres-backed queue → ARQ/Celery + Redis only if needed | Start simple, upgrade on evidence |
-| Migrations | Alembic | Standard with SQLAlchemy |
+| Migrations | Alembic (`backend/migrations/`), run with `uv run alembic upgrade head` | Standard with SQLAlchemy; the same files build every database (Supabase, CI) |
 | ORM / DB access | SQLAlchemy 2.x (async) + pgvector adapter | |
 | Auth | Supabase Auth: email + password (with email confirmation and password reset) and Google OAuth, PKCE flow; FastAPI checks its JWTs with PyJWT | No password storage or OAuth plumbing of our own; login gates every feature (PRD 7.10) |
 | File storage | Supabase Storage, private bucket | Same project and permissions model as the database |
@@ -182,7 +182,8 @@ Standard RAG: retrieve with the same hybrid search, answer from the chunks only,
 
 ```
 auth.users                    -- managed by Supabase Auth (email, password hash, Google identity)
-profiles(id REFERENCES auth.users ON DELETE CASCADE, display_name, created_at)
+profiles(id REFERENCES auth.users ON DELETE CASCADE, display_name varchar(40) CHECK 1-40 chars,
+         created_at, updated_at)   -- RLS on, no policies: only the backend reads/writes it
       -- our own per-user data; every user_id below is an auth.users id
 
 documents(id, user_id, title, file_path, content_hash, page_count,
@@ -237,6 +238,8 @@ jobs(id, document_id, type, status, step, attempts, last_error, updated_at)
 |---|---|---|
 | — | (Supabase Auth) | Sign up, log in, Google, email confirmation, password reset, log out: handled by Supabase from the browser, not by our API |
 | GET | `/auth/me` | The user the bearer token belongs to (proves the token check works) |
+| GET | `/profile` | The reader's display name (or a suggestion from their Google name / email, with `chosen: false`) |
+| PUT | `/profile` | Set the display name; the server tidies and validates it (`422` with a reason) |
 | GET | `/health` | Liveness check, no login |
 | POST | `/documents` | Upload PDF (starts ingestion job) |
 | GET | `/documents`, `/documents/{id}` | List and status/progress |
@@ -258,6 +261,8 @@ jobs(id, document_id, type, status, step, attempts, last_error, updated_at)
 Long operations (ingestion, quiz generation for large counts) return `202 Accepted` with a job ID; the client polls `GET /jobs/{id}` or subscribes to an SSE stream.
 
 **Every endpoint except `/health` requires a valid Supabase access token** (`401` otherwise).
+
+**All database writes go through the API.** The browser only talks to Supabase for logging in; it never reads or writes tables directly. Validation (e.g. display-name rules) therefore lives in one place, on the server, and the user id always comes from the verified token, never from the request body. The backend connects to Postgres through Supabase's session pooler with `DATABASE_URL` (server-only: it contains the database password and bypasses RLS).
 
 **Never leak answers early:** the quiz fetch endpoint omits `answer`, `explanation` and `evidence` until the attempt is submitted.
 
@@ -301,7 +306,7 @@ Use an LLM judge to scale, but validate it against the human labels on a sample 
 - **Prompt injection:** PDF text is untrusted. Delimit it clearly in prompts, instruct the model to ignore instructions inside the document, validate outputs against schema, and never give the model tools or secrets.
 - **Auth:** Supabase Auth stores and hashes passwords and runs Google OAuth; the Google client secret lives in the Supabase dashboard, never in our code. The browser uses the **PKCE** flow: emailed links and the Google redirect carry a one-time code that only the browser that started the flow can redeem (on `/auth/callback` or `/auth/reset`), instead of tokens in the URL. New accounts must confirm their email. After login, redirects only go to same-site paths (`safeNext`), never to a URL taken from the link, to prevent open redirects.
 - **Token checks (API):** every request's JWT is verified with an explicit algorithm allow-list (ES256/RS256 via the project's JWKS, cached; HS256 only if a legacy `SUPABASE_JWT_SECRET` is set), and must have `aud = authenticated`, our project's `iss`, and an unexpired `exp`. The public anon key (itself a JWT with `aud = anon`) is rejected. 401 responses don't say why a token failed. The frontend's login gate is only UX.
-- **Browser keys:** only the Supabase publishable (anon) key is in the frontend; the service-role key never leaves the server. Every table the browser could reach gets Row Level Security.
+- **Browser keys:** only the Supabase publishable (anon) key is in the frontend; the service-role key never leaves the server. Every table in `public` (which Supabase's Data API exposes to browsers) has Row Level Security enabled with no policies, so browsers can't touch it even with the anon key; only the backend's database connection can.
 - **Authorization:** ownership checks on every document, quiz and attempt; shared quizzes are reachable only through an unguessable, unexpired share token, and the shared PDF only through a review-mode token.
 - **Expiry:** expired quizzes are rejected on read and hard-deleted by the cleanup job.
 - **Secrets:** provider keys server-side only, loaded from environment, never logged.
