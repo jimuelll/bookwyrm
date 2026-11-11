@@ -53,6 +53,8 @@
   font-family: var(--font-display); font-style: italic; font-size: clamp(30px, 3.2vw, 42px); line-height: 1.1;
   color: var(--ink); overflow-wrap: anywhere; text-wrap: balance;
 }
+/* the name line before the name has loaded: blank, like a bookplate waiting to be filled in */
+.ex-libris-name.is-blank { display: block; width: 9em; height: 1.1em; margin-inline: auto; border-bottom: 1px solid var(--rule); }
 .ex-libris-rule { width: 60%; border-top: 3px double var(--rule); margin-top: 4px; }
 .ex-libris-facts { margin: 0; font-family: var(--font-display); font-style: italic; font-size: 17px; color: var(--muted); }
 
@@ -74,7 +76,7 @@
   background: var(--paper), var(--page); border: 1px solid var(--frame); border-radius: 2px;
   box-shadow: 0 0 0 3px var(--page), 0 0 0 4px var(--frame), 0 16px 32px -14px rgb(0 0 0 / .6);
 }
-.lib-next > svg { width: 30px; height: 30px; flex: none; margin-top: 2px; color: var(--accent); }
+.lib-next-wyrm { flex: none; margin: -6px -4px -4px -6px; }
 .lib-next h2 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 19px; line-height: 1.2; }
 .lib-next p { margin: 4px 0 0; font-size: 15px; line-height: 1.45; color: var(--muted); }
 .lib-next-link {

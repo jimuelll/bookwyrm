@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Navigate, useNavigate, useSearchParams } from 'react-router'
 import { usePageTitle } from '../../app/shell'
+import { WyrmLoader } from '../../components/inkWyrm/WyrmLoader'
 import { safeNext } from './authBackend'
 import { useAuth } from './authContext'
 import { useOneTimeCode } from './useOneTimeCode'
@@ -36,8 +37,8 @@ export function AuthCallbackPage() {
     )
   }
   return (
-    <main className="sheet gate" aria-busy="true">
-      <h1>Logging you in…</h1>
+    <main className="sheet" aria-busy="true">
+      <WyrmLoader label="Logging you in…" heading />
     </main>
   )
 }

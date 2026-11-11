@@ -1,6 +1,7 @@
 import { usePageTitle, useShell, useStartUpload } from '../../app/shell'
 import { useDisplayName } from '../../app/useDisplayName'
 import { UploadIcon, WyrmMark } from '../../components/icons'
+import { InkWyrm } from '../../components/inkWyrm/InkWyrm'
 import stacksDay from '../../assets/stacks-day.webp'
 import stacksNight from '../../assets/stacks-night.webp'
 import './library.css'
@@ -30,7 +31,12 @@ export function LibraryPage() {
             <h1>
               <span className="ex-libris-label">Ex Libris</span>{' '}
               {/* the space keeps screen readers from reading "Ex LibrisAna" as one word */}
-              <span className="ex-libris-name">{name}</span>
+              {name ? (
+                <span className="ex-libris-name">{name}</span>
+              ) : (
+                // still loading on a first visit: an unfilled bookplate's blank name line, not a guess
+                <span className="ex-libris-name is-blank" aria-hidden="true" />
+              )}
             </h1>
             <span className="ex-libris-rule" aria-hidden="true" />
             <p className="ex-libris-facts">An empty shelf, for now.</p>
@@ -51,7 +57,8 @@ export function LibraryPage() {
               />
             </figure>
             <div className="lib-next">
-              <WyrmMark />
+              {/* an empty library: the wyrm curled up asleep on its books, waiting */}
+              <InkWyrm mode="coil" width={84} height={76} cell={2} speed={0.7} className="lib-next-wyrm" />
               <div>
                 <h2>Nothing on your shelves yet</h2>
                 <p>Upload a PDF and Bookwyrm will write your first quiz from it, with the page for every answer.</p>

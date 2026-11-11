@@ -37,6 +37,11 @@ if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
   }
 }
 
+// jsdom can't draw on a canvas and logs a warning each time something asks. Answer "no drawing
+// support" quietly instead: the app already handles that (the 3D hero shows its painted fallback,
+// the Ink-glyph Wyrm stops trying).
+HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext
+
 // jsdom doesn't scroll; route changes call this
 window.scrollTo = () => {}
 

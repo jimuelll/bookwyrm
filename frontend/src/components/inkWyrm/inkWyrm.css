@@ -1,0 +1,4 @@
+/* Page-level loading state: the Ink-glyph Wyrm above a small-caps label, centred. */
+.wyrm-loader { display: grid; justify-items: center; gap: 10px; padding: clamp(32px, 8vh, 80px) 16px; text-align: center; }
+.wyrm-loader-label { margin: 0; font-weight: 400; font-family: var(--font-caps); font-size: 17px; letter-spacing: .08em; color: var(--ink); }
+.wyrm-loader-detail { margin: -4px 0 0; font-family: var(--font-display); font-style: italic; font-size: 16px; color: var(--muted); }

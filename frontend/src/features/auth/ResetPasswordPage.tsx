@@ -1,6 +1,7 @@
 import { useId, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router'
 import { usePageTitle } from '../../app/shell'
+import { WyrmLoader } from '../../components/inkWyrm/WyrmLoader'
 import { AuthError } from './authBackend'
 import { useAuth } from './authContext'
 import { useOneTimeCode } from './useOneTimeCode'
@@ -38,8 +39,8 @@ export function ResetPasswordPage() {
 
   if (state.status === 'working') {
     return (
-      <main className="sheet gate" aria-busy="true">
-        <h1>Checking your link…</h1>
+      <main className="sheet" aria-busy="true">
+        <WyrmLoader label="Checking your link…" heading />
       </main>
     )
   }

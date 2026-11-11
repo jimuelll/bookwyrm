@@ -1,6 +1,8 @@
 import { useEffect, useId, useState, type FormEvent } from 'react'
 import { ApiError, useApi } from '../../app/api'
+import { writeCachedName } from '../../app/displayNameCache'
 import { usePageTitle } from '../../app/shell'
+import { WyrmLoader } from '../../components/inkWyrm/WyrmLoader'
 import { useAuth } from '../auth/authContext'
 import './settings.css'
 
@@ -18,6 +20,7 @@ export function SettingsPage() {
   usePageTitle('Settings')
   const api = useApi()
   const { user } = useAuth()
+  const userId = user?.id
   const uid = useId()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [name, setName] = useState('')
@@ -33,12 +36,13 @@ export function SettingsPage() {
         if (!alive) return
         setProfile(p)
         setName(p.display_name)
+        if (userId) writeCachedName(userId, p.display_name)
       })
       .catch((e: unknown) => alive && setLoadError(e instanceof ApiError ? e.message : 'Could not load your settings.'))
     return () => {
       alive = false
     }
-  }, [api])
+  }, [api, userId])
 
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -50,6 +54,8 @@ export function SettingsPage() {
     try {
       const updated = await api<Profile>('/profile', { method: 'PUT', body: JSON.stringify({ display_name: name }) })
       setProfile(updated)
+      // remember it, so the Library's bookplate shows the new name at once
+      if (userId) writeCachedName(userId, updated.display_name)
       setName(updated.display_name) // the server may have tidied it, e.g. extra spaces
       setSaved(true)
     } catch (err) {
@@ -68,7 +74,7 @@ export function SettingsPage() {
         {loadError ? (
           <p className="auth-error" role="alert">{loadError}</p>
         ) : !profile ? (
-          <p className="settings-loading" aria-busy="true">Loading…</p>
+          <WyrmLoader label="Fetching your profile…" />
         ) : (
           <form className="auth-form settings-form" noValidate onSubmit={save}>
             <label htmlFor={`${uid}-name`}>Display name</label>

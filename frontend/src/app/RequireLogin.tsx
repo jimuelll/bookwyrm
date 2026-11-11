@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { WyrmLoader } from '../components/inkWyrm/WyrmLoader'
 import { useAuth } from '../features/auth/authContext'
 
 interface Props {
@@ -11,8 +12,14 @@ interface Props {
 export function RequireLogin({ title, children }: Props) {
   const { user, ready, openLogin } = useAuth()
   if (user) return children
-  // still checking for a saved session: show nothing rather than flash "log in" at a logged-in reader
-  if (!ready) return <main className="sheet" aria-busy="true" />
+  // still checking for a saved session: wait, rather than flash "log in" at a logged-in reader
+  if (!ready) {
+    return (
+      <main className="sheet" aria-busy="true">
+        <WyrmLoader label="Opening your shelves…" heading />
+      </main>
+    )
+  }
   return (
     <main className="sheet gate">
       <h1>{title}</h1>

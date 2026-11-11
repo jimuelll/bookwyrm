@@ -232,6 +232,16 @@ describe('header and session', () => {
     expect(fake.user).toBeNull()
   })
 
+  it('forgets the remembered display name on log out (shared computers)', async () => {
+    localStorage.setItem('bookwyrm-display-name:u-1', 'Bookworm Ana')
+    const { user } = setup({ signedIn: ANA }, '/library')
+    await user.click(await screen.findByRole('button', { name: 'Account' }))
+    await user.click(screen.getByRole('button', { name: 'Log out' }))
+
+    await screen.findByRole('button', { name: 'Get started' })
+    expect(localStorage.getItem('bookwyrm-display-name:u-1')).toBeNull()
+  })
+
   it('marks the current page in the bar', async () => {
     const { user } = setup()
     expect(within(nav()).getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page')

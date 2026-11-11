@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { useAuth } from '../features/auth/authContext'
+import { clearCachedNames } from './displayNameCache'
 
 /** The logged-in reader's initial; opens a small paper card with who is logged in, Settings and Log out. */
 export function AccountMenu({ email }: { email: string }) {
@@ -32,6 +33,7 @@ export function AccountMenu({ email }: { email: string }) {
 
   async function logOut() {
     setOpen(false)
+    clearCachedNames()
     await signOut()
     navigate('/')
   }
