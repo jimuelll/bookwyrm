@@ -23,14 +23,16 @@ from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
 from fastapi import UploadFile
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
 from app.db.models import FILENAME_MAX, TITLE_MAX, ChunkRow, Document
+from app.ingestion import sandbox
 from app.ingestion.chunk import Chunk, chunk_pages
-from app.ingestion.extract import PdfError, extract_pages
+from app.ingestion.extract import PdfError
+from app.quotas import Usage
 from app.storage import FileStore
 
 log = logging.getLogger(__name__)
@@ -48,6 +50,7 @@ class DocumentRecord:
     filename: str
     page_count: int | None
     content_hash: str
+    size_bytes: int
     status: Status
     error: str | None
     created_at: datetime
@@ -118,13 +121,25 @@ class DocumentStore(Protocol):
     async def find_by_hash(self, user_id: str, content_hash: str) -> DocumentRecord | None: ...
 
     async def create(
-        self, *, id: UUID, user_id: str, title: str, filename: str, page_count: int, content_hash: str
+        self,
+        *,
+        id: UUID,
+        user_id: str,
+        title: str,
+        filename: str,
+        page_count: int,
+        content_hash: str,
+        size_bytes: int,
     ) -> DocumentRecord:
         """Raises DuplicateDocument if this reader already has a document with this hash."""
         ...
 
     async def get(self, user_id: str, document_id: UUID) -> DocumentRecord | None: ...
     async def list_for(self, user_id: str) -> list[DocumentRecord]: ...
+
+    async def usage(self, user_id: str) -> Usage:
+        """How many documents this reader has and their total size (their quota, app/quotas.py)."""
+        ...
 
     async def set_status(self, document_id: UUID, status: Status, error: str | None = None) -> bool:
         """Returns False if the document no longer exists (deleted while it was being read)."""
@@ -147,6 +162,7 @@ def _record(row: Document) -> DocumentRecord:
         filename=row.filename,
         page_count=row.page_count,
         content_hash=row.content_hash,
+        size_bytes=row.size_bytes,
         status=row.status,  # type: ignore[arg-type]  # the CHECK constraint keeps it one of Status
         error=row.error,
         created_at=row.created_at,
@@ -168,7 +184,15 @@ class SqlDocumentStore:
             return _record(row) if row else None
 
     async def create(
-        self, *, id: UUID, user_id: str, title: str, filename: str, page_count: int, content_hash: str
+        self,
+        *,
+        id: UUID,
+        user_id: str,
+        title: str,
+        filename: str,
+        page_count: int,
+        content_hash: str,
+        size_bytes: int,
     ) -> DocumentRecord:
         row = Document(
             id=id,
@@ -177,6 +201,7 @@ class SqlDocumentStore:
             filename=filename,
             page_count=page_count,
             content_hash=content_hash,
+            size_bytes=size_bytes,
             status="queued",
         )
         try:
@@ -202,6 +227,17 @@ class SqlDocumentStore:
                 .order_by(Document.created_at.desc(), Document.id)
             )
             return [_record(r) for r in rows]
+
+    async def usage(self, user_id: str) -> Usage:
+        async with self._sessions() as session:
+            count, total = (
+                await session.execute(
+                    select(func.count(), func.coalesce(func.sum(Document.size_bytes), 0)).where(
+                        Document.user_id == UUID(user_id)
+                    )
+                )
+            ).one()
+            return Usage(documents=int(count), bytes=int(total))
 
     async def set_status(self, document_id: UUID, status: Status, error: str | None = None) -> bool:
         async with self._sessions() as session, session.begin():
@@ -262,8 +298,9 @@ async def ingest(
 
     Runs after the upload response has been sent (a FastAPI background task). The file is fetched from
     storage into a temporary copy, so the job works the same whether storage is a bucket or a folder.
-    PyMuPDF and the chunker are ordinary blocking Python, so they run in a worker thread
-    (`asyncio.to_thread`): while a 300-page book is being read, the server keeps answering requests.
+    Reading the PDF happens in a sandboxed child process and the chunker is ordinary blocking Python;
+    both are waited on from a worker thread (`asyncio.to_thread`), so while a 300-page book is being
+    read the server keeps answering requests.
     """
     temp_dir = settings.storage_path / "tmp"
     temp_dir.mkdir(parents=True, exist_ok=True)
@@ -272,8 +309,14 @@ async def ingest(
         if not await store.set_status(document_id, "extracting"):
             return  # removed before we started
         await files.download(user_id, document_id, pdf)
+        # in a child process with a time (and, on Linux, memory) limit: app/ingestion/sandbox.py.
+        # A timeout or crash raises PdfError like any unreadable file, so it is recorded as failed.
         pages = await asyncio.to_thread(
-            extract_pages, pdf, max_pages=settings.max_pages, max_mb=settings.max_upload_mb
+            sandbox.extract_pages,
+            pdf,
+            max_pages=settings.max_pages,
+            max_mb=settings.max_upload_mb,
+            limits=settings.pdf_limits(settings.pdf_extract_timeout_seconds),
         )
         if not await store.set_status(document_id, "chunking"):
             return

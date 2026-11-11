@@ -29,8 +29,11 @@ class FakeXhr {
     act(() => this.upload.onprogress?.({ lengthComputable: true, loaded: fraction * 1000, total: 1000 } as ProgressEvent))
   }
   respond(status: number, body: unknown) {
+    this.respondText(status, JSON.stringify(body))
+  }
+  respondText(status: number, text: string) {
     this.status = status
-    this.responseText = JSON.stringify(body)
+    this.responseText = text
     act(() => this.onload?.())
   }
 }
@@ -105,6 +108,34 @@ describe('uploading a PDF', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('password-protected')
     expect(screen.getByRole('dialog', { name: 'Upload a PDF' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Choose a PDF' })).toBeInTheDocument()
+  })
+
+  it('says when the reader has uploaded too many PDFs too quickly (429)', async () => {
+    const { user } = await openUpload()
+    await user.upload(screen.getByLabelText('Choose a PDF'), pdf())
+    FakeXhr.sent[0].respond(429, { detail: 'You’ve uploaded 10 PDFs in the last 10 minutes. Try again in 4 minutes.' })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Try again in 4 minutes.')
+    expect(screen.getByRole('button', { name: 'Choose a PDF' })).toBeInTheDocument()
+  })
+
+  it('says when the reader’s shelf has no room left (413)', async () => {
+    const { user } = await openUpload()
+    await user.upload(screen.getByLabelText('Choose a PDF'), pdf())
+    FakeXhr.sent[0].respond(413, { detail: 'Your shelf is full: 50 PDFs is the limit. Remove one to make room for another.' })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Your shelf is full: 50 PDFs is the limit.')
+  })
+
+  it('still explains a 413 or 429 that comes from a proxy instead of our API', async () => {
+    const { user } = await openUpload()
+    await user.upload(screen.getByLabelText('Choose a PDF'), pdf())
+    FakeXhr.sent[0].respondText(413, '<html><body>413 Request Entity Too Large</body></html>')
+    expect(await screen.findByRole('alert')).toHaveTextContent('the file is too large or your shelf is full')
+
+    await user.upload(screen.getByLabelText('Choose a PDF'), pdf())
+    FakeXhr.sent[1].respondText(429, '')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Too many uploads in a short time.')
   })
 
   it('says when the same PDF is already on the shelf', async () => {

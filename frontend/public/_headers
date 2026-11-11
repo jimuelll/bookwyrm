@@ -1,4 +1,7 @@
 # Response headers for the deployed site (Cloudflare reads this file from the build output).
+# __API_ORIGIN__ and __SUPABASE_ORIGIN__ are filled in by `npm run build` from VITE_API_URL and
+# VITE_SUPABASE_URL (csp.ts); the build fails if either is missing. `npm run preview` serves dist/ with
+# these same headers, so the policy can be tried locally. `npm run dev` does NOT apply them.
 
 # Every page
 /*
@@ -10,6 +13,22 @@
   Referrer-Policy: strict-origin-when-cross-origin
   # features the site never uses
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+  # Content-Security-Policy: what this page may load and talk to. Supabase keeps the reader's session
+  # (access and refresh tokens) in localStorage, where any script running on our page can read it. So
+  # the main defence against stolen sessions is that no script but ours ever runs here, and that even
+  # if one did, it couldn't send the tokens anywhere but our own API and Supabase. Per directive:
+  #   default-src 'none'       anything not listed below is refused
+  #   script-src 'self'        only our own files: no inline <script>, no eval, no CDNs
+  #   style-src 'self'         our CSS files; React's style={...} is set through the DOM, which CSP allows
+  #   img-src 'self' data:     the paper texture is an inline SVG data: URL (src/styles/tokens.css)
+  #   font-src 'self'          fonts are bundled with @fontsource, not fetched from Google Fonts
+  #   connect-src              fetch/XHR only to us, our API, and Supabase (auth). Supabase Realtime
+  #                            (wss://) isn't used, so it's not allowed
+  #   base-uri 'none'          an injected <base href> can't redirect our relative URLs
+  #   form-action 'self'       an injected <form> can't post the login fields to another site
+  #   frame-ancestors 'none'   the modern X-Frame-Options: DENY
+  #   object-src 'none'        no plugins (<object>, <embed>)
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' __API_ORIGIN__ __SUPABASE_ORIGIN__; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'
 
 # Vite gives built files a content hash in their name (index-a1b2c3.js), so a changed file gets a
 # new name and these can be cached for a year. index.html itself is never cached this way.

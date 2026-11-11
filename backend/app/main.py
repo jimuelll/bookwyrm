@@ -35,7 +35,8 @@ from app.documents import (
     receive_upload,
     title_from_filename,
 )
-from app.ingestion.extract import PdfError, inspect_pdf
+from app.ingestion import sandbox
+from app.ingestion.extract import PdfError
 from app.profiles import (
     InvalidDisplayName,
     ProfileStore,
@@ -43,6 +44,7 @@ from app.profiles import (
     clean_display_name,
     default_display_name,
 )
+from app.quotas import MB, QuotaExceeded, RateLimited, UploadRateLimiter, Usage, UserLocks, check_quota
 from app.storage import FileStore, LocalFileStore, StorageError, SupabaseFileStore
 
 log = logging.getLogger(__name__)
@@ -110,9 +112,12 @@ def create_app(
         )
     else:  # no secret key: tests and offline development keep files on this disk
         file_store = LocalFileStore(settings.storage_path)
+    upload_limiter = UploadRateLimiter(settings.upload_rate_count, settings.upload_rate_window_seconds)
+    upload_locks = UserLocks()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        sandbox.warm_up()  # start the first PDF worker now, not when the first reader uploads
         # Ingestion runs inside this process, so a restart (or a --reload) kills any job in progress
         # and its document would say "reading..." forever. Mark those failed so the reader can retry.
         # This assumes one API process; a jobs table that workers claim replaces it when we run several
@@ -211,57 +216,91 @@ def create_app(
         file: UploadFile, user: User, store: Documents, background: BackgroundTasks, response: Response
     ) -> DocumentOut:
         """Upload a PDF. 202: stored and queued for reading (poll GET /documents/{id}).
-        200: this reader already has this exact file; that document is returned instead."""
+        200: this reader already has this exact file; that document is returned instead.
+        413: too large, or no room left in the reader's quota. 429: too many uploads; see Retry-After."""
+        # The cheap refusals first, before a single byte of the file is read.
+        try:
+            upload_limiter.hit(user.id)
+        except RateLimited as e:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                str(e),
+                headers={"Retry-After": str(e.retry_after_seconds)},
+            ) from None
+
+        def quota(current: Usage, adding_bytes: int) -> None:
+            try:
+                check_quota(
+                    current,
+                    adding_bytes=adding_bytes,
+                    max_documents=settings.max_documents_per_user,
+                    max_bytes=settings.max_storage_mb_per_user * MB,
+                )
+            except QuotaExceeded as e:
+                raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, str(e)) from None
+
+        quota(await store.usage(user.id), 0)  # already full: say so now, instead of after a 25 MB upload
+
         temp_dir = settings.storage_path / "tmp"
         temp_dir.mkdir(parents=True, exist_ok=True)
         try:
-            received = await receive_upload(
-                file, max_bytes=settings.max_upload_mb * 1024 * 1024, temp_dir=temp_dir
-            )
+            received = await receive_upload(file, max_bytes=settings.max_upload_mb * MB, temp_dir=temp_dir)
         except FileTooLarge as e:
             raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, str(e)) from None
         except PdfError as e:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from None
 
         try:
-            # the quick checks, in a thread: opening a PDF is blocking work
+            # the quick checks, in a sandboxed child process (app/ingestion/sandbox.py), waited on from
+            # a thread so the event loop stays free
             page_count = await asyncio.to_thread(
-                inspect_pdf, received.path, max_pages=settings.max_pages, max_mb=settings.max_upload_mb
+                sandbox.inspect_pdf,
+                received.path,
+                max_pages=settings.max_pages,
+                max_mb=settings.max_upload_mb,
+                limits=settings.pdf_limits(settings.pdf_inspect_timeout_seconds),
             )
-            existing = await store.find_by_hash(user.id, received.sha256)
-            if existing and existing.status != "failed":
-                response.status_code = status.HTTP_200_OK
-                return DocumentOut.of(existing)
-            if existing:  # it failed last time (maybe a restart); start it over
-                await store.delete(user.id, existing.id)
-                await remove_file_quietly(user.id, existing.id)
+            # One upload at a time per reader from here to "stored": otherwise two uploads sent together
+            # could both see room for one more and both be saved.
+            async with upload_locks(user.id):
+                existing = await store.find_by_hash(user.id, received.sha256)
+                if existing and existing.status != "failed":
+                    response.status_code = status.HTTP_200_OK
+                    return DocumentOut.of(existing)
+                if existing:  # it failed last time (maybe a restart); start it over
+                    await store.delete(user.id, existing.id)
+                    await remove_file_quietly(user.id, existing.id)
 
-            filename = clean_filename(file.filename)
-            document_id = new_document_id()
-            try:
-                record = await store.create(
-                    id=document_id,
-                    user_id=user.id,
-                    title=title_from_filename(filename),
-                    filename=filename,
-                    page_count=page_count,
-                    content_hash=received.sha256,
-                )
-            except DuplicateDocument:  # the same file, uploaded twice at the same moment
-                raced = await store.find_by_hash(user.id, received.sha256)
-                if raced is None:
-                    raise
-                response.status_code = status.HTTP_200_OK
-                return DocumentOut.of(raced)
-            try:
-                await file_store.put(user.id, document_id, received.path)
-            except StorageError:
-                # never leave a book on the shelf with no file behind it
-                log.exception("storing document %s failed", document_id)
-                await store.delete(user.id, document_id)
-                raise HTTPException(
-                    status.HTTP_503_SERVICE_UNAVAILABLE, "Your PDF couldn't be stored just now. Try again."
-                ) from None
+                quota(await store.usage(user.id), received.size)
+
+                filename = clean_filename(file.filename)
+                document_id = new_document_id()
+                try:
+                    record = await store.create(
+                        id=document_id,
+                        user_id=user.id,
+                        title=title_from_filename(filename),
+                        filename=filename,
+                        page_count=page_count,
+                        content_hash=received.sha256,
+                        size_bytes=received.size,
+                    )
+                except DuplicateDocument:  # the same file, uploaded twice at the same moment
+                    raced = await store.find_by_hash(user.id, received.sha256)
+                    if raced is None:
+                        raise
+                    response.status_code = status.HTTP_200_OK
+                    return DocumentOut.of(raced)
+                try:
+                    await file_store.put(user.id, document_id, received.path)
+                except StorageError:
+                    # never leave a book on the shelf with no file behind it
+                    log.exception("storing document %s failed", document_id)
+                    await store.delete(user.id, document_id)
+                    raise HTTPException(
+                        status.HTTP_503_SERVICE_UNAVAILABLE,
+                        "Your PDF couldn't be stored just now. Try again.",
+                    ) from None
         except PdfError as e:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from None
         finally:

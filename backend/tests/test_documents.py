@@ -27,10 +27,14 @@ from app.documents import (
     ingest,
     title_from_filename,
 )
+from app.ingestion import sandbox
 from app.ingestion.chunk import Chunk
+from app.ingestion.sandbox import TIMED_OUT, Limits, run_sandboxed
 from app.main import create_app
+from app.quotas import Usage
 from app.storage import LocalFileStore, StorageError, SupabaseFileStore
 from tests.conftest import MakePdf
+from tests.ingestion.test_sandbox import hang
 from tests.test_profiles import ANA, ISSUER, KEY, auth, token
 
 BEN = "22222222-2222-2222-2222-222222222222"
@@ -56,13 +60,21 @@ class MemoryDocuments:
         )
 
     async def create(
-        self, *, id: UUID, user_id: str, title: str, filename: str, page_count: int, content_hash: str
+        self,
+        *,
+        id: UUID,
+        user_id: str,
+        title: str,
+        filename: str,
+        page_count: int,
+        content_hash: str,
+        size_bytes: int,
     ) -> DocumentRecord:
         if await self.find_by_hash(user_id, content_hash):
             raise DuplicateDocument
         now = self._now()
         self.rows[id] = DocumentRecord(
-            id, user_id, title, filename, page_count, content_hash, "queued", None, now, now
+            id, user_id, title, filename, page_count, content_hash, size_bytes, "queued", None, now, now
         )
         self.history[id] = ["queued"]
         return self.rows[id]
@@ -74,6 +86,10 @@ class MemoryDocuments:
     async def list_for(self, user_id: str) -> list[DocumentRecord]:
         mine = [d for d in self.rows.values() if d.user_id == user_id]
         return sorted(mine, key=lambda d: d.created_at, reverse=True)
+
+    async def usage(self, user_id: str) -> Usage:
+        mine = await self.list_for(user_id)
+        return Usage(documents=len(mine), bytes=sum(d.size_bytes for d in mine))
 
     async def set_status(self, document_id: UUID, status: Status, error: str | None = None) -> bool:
         if document_id not in self.rows:
@@ -117,7 +133,9 @@ def client(store: MemoryDocuments, settings: Settings) -> TestClient:
     return TestClient(create_app(settings, verifier, documents=store))
 
 
-def upload(client: TestClient, path: Path, name: str = "Cell_Biology  ch3.pdf", user: str = ANA):
+def upload(
+    client: TestClient, path: Path, name: str = "Cell_Biology  ch3.pdf", user: str = ANA
+) -> httpx.Response:
     with path.open("rb") as f:
         return client.post(
             "/documents", files={"file": (name, f, "application/pdf")}, headers=auth(token(sub=user))
@@ -221,6 +239,106 @@ def test_needs_a_login(client: TestClient, make_pdf: MakePdf) -> None:
     assert client.get("/documents").status_code == 401
 
 
+# --- per-reader limits (app/quotas.py) ---
+
+
+def limited_client(store: MemoryDocuments, settings: Settings, **limits: int) -> TestClient:
+    verifier = TokenVerifier(issuer=ISSUER, public_key_for=lambda _: KEY.public_key())
+    return TestClient(create_app(settings.model_copy(update=limits), verifier, documents=store))
+
+
+def test_a_full_shelf_refuses_another_book_before_reading_it(
+    store: MemoryDocuments, settings: Settings, make_pdf: MakePdf
+) -> None:
+    client = limited_client(store, settings, max_documents_per_user=1)
+    assert upload(client, make_pdf(["First book. " * 20])).status_code == 202
+    response = upload(client, make_pdf(["Second book. " * 20]))
+    assert response.status_code == 413
+    assert response.json()["detail"] == (
+        "Your shelf is full: 1 PDFs is the limit. Remove one to make room for another."
+    )
+    assert len(store.rows) == 1
+    # another reader's shelf is their own
+    assert upload(client, make_pdf(["Ben's book. " * 20]), user=BEN).status_code == 202
+
+
+def test_a_book_that_would_pass_the_storage_limit_is_refused(
+    store: MemoryDocuments, settings: Settings, make_pdf: MakePdf
+) -> None:
+    first = make_pdf(["First book. " * 20])
+    client = limited_client(store, settings, max_storage_mb_per_user=1)
+    # an earlier book that leaves just under this file's size free of the 1 MB
+    earlier = asyncio.run(
+        store.create(
+            id=uuid.uuid4(),
+            user_id=ANA,
+            title="earlier",
+            filename="earlier.pdf",
+            page_count=1,
+            content_hash="e",
+            size_bytes=1024 * 1024 - first.stat().st_size + 1,
+        )
+    )
+
+    response = upload(client, first)
+    assert response.status_code == 413
+    assert "Remove a PDF to make room." in response.json()["detail"]
+    assert list(store.rows) == [earlier.id]
+    assert not any((settings.storage_path / "tmp").iterdir())  # the upload was cleaned up
+
+
+def test_removing_a_book_makes_room_again(
+    store: MemoryDocuments, settings: Settings, make_pdf: MakePdf
+) -> None:
+    client = limited_client(store, settings, max_documents_per_user=1)
+    first = upload(client, make_pdf(["First book. " * 20])).json()["id"]
+    client.delete(f"/documents/{first}", headers=auth(token()))
+    assert upload(client, make_pdf(["Second book. " * 20])).status_code == 202
+
+
+def test_too_many_uploads_in_a_row_are_refused_with_retry_after(
+    store: MemoryDocuments, settings: Settings, tmp_path: Path
+) -> None:
+    client = limited_client(store, settings, upload_rate_count=2, upload_rate_window_seconds=600)
+    junk = tmp_path / "junk.pdf"
+    junk.write_bytes(b"not a pdf")  # refused attempts count too: they still cost us reading them
+    assert [upload(client, junk).status_code for _ in range(2)] == [422, 422]
+
+    response = upload(client, junk)
+    assert response.status_code == 429
+    assert 590 <= int(response.headers["Retry-After"]) <= 600  # seconds until the oldest leaves the window
+    assert response.json()["detail"] == (
+        "You've uploaded 2 PDFs in the last 10 minutes. Try again in 10 minutes."
+    )
+    assert upload(client, junk, user=BEN).status_code == 422  # Ben has his own count
+
+
+# --- the sandbox's timeout, as the reader sees it ---
+
+
+def hanging_parse(path: Path, **_: object) -> object:
+    return run_sandboxed(hang, limits=Limits(timeout_seconds=1, memory_mb=0))
+
+
+def test_a_pdf_that_takes_too_long_to_check_is_refused(
+    client: TestClient, store: MemoryDocuments, make_pdf: MakePdf, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sandbox, "inspect_pdf", hanging_parse)
+    response = upload(client, make_pdf([TEXT]))
+    assert (response.status_code, response.json()["detail"]) == (422, TIMED_OUT)
+    assert store.rows == {}
+
+
+def test_a_pdf_that_takes_too_long_to_read_is_recorded_as_failed(
+    client: TestClient, store: MemoryDocuments, make_pdf: MakePdf, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sandbox, "extract_pages", hanging_parse)
+    body = upload(client, make_pdf([TEXT])).json()
+    document = client.get(f"/documents/{body['id']}", headers=auth(token())).json()
+    assert (document["status"], document["error"]) == ("failed", TIMED_OUT)
+    assert store.history[UUID(body["id"])] == ["queued", "extracting", "failed"]
+
+
 # --- listing, status, deleting ---
 
 
@@ -254,7 +372,13 @@ def test_a_restart_marks_unfinished_books_failed(store: MemoryDocuments, setting
 
     stuck = asyncio.run(
         store.create(
-            id=uuid.uuid4(), user_id=ANA, title="t", filename="t.pdf", page_count=1, content_hash="h"
+            id=uuid.uuid4(),
+            user_id=ANA,
+            title="t",
+            filename="t.pdf",
+            page_count=1,
+            content_hash="h",
+            size_bytes=1,
         ),
     )
     verifier = TokenVerifier(issuer=ISSUER, public_key_for=lambda _: KEY.public_key())
@@ -327,7 +451,13 @@ async def test_a_book_whose_file_cannot_be_fetched_fails_with_a_retry_message(
     store: MemoryDocuments, settings: Settings
 ) -> None:
     record = await store.create(
-        id=uuid.uuid4(), user_id=ANA, title="t", filename="t.pdf", page_count=1, content_hash="h"
+        id=uuid.uuid4(),
+        user_id=ANA,
+        title="t",
+        filename="t.pdf",
+        page_count=1,
+        content_hash="h",
+        size_bytes=1,
     )
     await ingest(store, BrokenFiles(), ANA, record.id, settings)
     assert store.rows[record.id].status == "failed"
@@ -421,6 +551,7 @@ async def test_the_documents_tables_store_a_book_and_its_passages(
             filename="t.pdf",
             page_count=1,
             content_hash="a" * 64,
+            size_bytes=1,
         )
         with pytest.raises(DuplicateDocument):
             await sql.create(
@@ -430,6 +561,7 @@ async def test_the_documents_tables_store_a_book_and_its_passages(
                 filename="t.pdf",
                 page_count=1,
                 content_hash="a" * 64,
+                size_bytes=1,
             )
         files = LocalFileStore(settings.storage_path)
         await files.put(user, document_id, make_pdf([TEXT]))

@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.ingestion.sandbox import Limits
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -31,6 +33,18 @@ class Settings(BaseSettings):
     # files while an upload is checked and read.
     storage_dir: str = "storage"
     storage_bucket: str = "documents"  # created by migrations/versions/0003_documents_bucket.py
+
+    # Per-reader upload limits (app/quotas.py, docs/ARCHITECTURE.md §9)
+    max_documents_per_user: int = 50
+    max_storage_mb_per_user: int = 500
+    upload_rate_count: int = 10  # at most this many upload attempts...
+    upload_rate_window_seconds: int = 600  # ...in any window this long
+
+    # PDF parsing runs in a child process (app/ingestion/sandbox.py)
+    pdf_inspect_timeout_seconds: float = 20.0  # the quick checks, while the upload request waits
+    pdf_extract_timeout_seconds: float = 180.0  # reading every page, in the background
+    pdf_memory_mb: int = 1024  # address-space cap for the child; Linux only, 0 = none
+    pdf_max_parallel: int = 2  # children running at once, across all readers
 
     # Chunking, in estimated tokens; kept in config so the evaluation can vary them
     chunk_target_tokens: int = 600
@@ -59,6 +73,11 @@ class Settings(BaseSettings):
     def storage_path(self) -> Path:
         path = Path(self.storage_dir)
         return path if path.is_absolute() else REPO_ROOT / "backend" / path
+
+    def pdf_limits(self, timeout_seconds: float) -> Limits:
+        return Limits(
+            timeout_seconds=timeout_seconds, memory_mb=self.pdf_memory_mb, max_parallel=self.pdf_max_parallel
+        )
 
     @property
     def cors_origin_list(self) -> list[str]:

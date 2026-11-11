@@ -12,8 +12,11 @@ export class ApiError extends Error {
   }
 }
 
+// Used when an error has no {"detail"} from our API, e.g. a page from a proxy in front of it
 const FALLBACK: Record<number, string> = {
   401: 'Your session has expired. Log in again.',
+  413: 'That’s too much for Bookwyrm to take: the file is too large or your shelf is full. Remove a PDF and try again.',
+  429: 'Too many uploads in a short time. Wait a few minutes and try again.',
   503: 'This part of Bookwyrm is not set up yet.',
 }
 

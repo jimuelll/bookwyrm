@@ -8,15 +8,9 @@
     <meta name="theme-color" content="#f2e9d5" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#140f0a" media="(prefers-color-scheme: dark)" />
     <title>Bookwyrm · Quizzes from your PDFs</title>
-    <script>
-      // Resolve day/night before first paint so there is no flash of the wrong theme.
-      (function () {
-        var t = null;
-        try { t = localStorage.getItem('bookwyrm-theme'); } catch (e) {}
-        if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        document.documentElement.dataset.theme = t;
-      })();
-    </script>
+    <!-- not inline: the Content-Security-Policy (public/_headers) allows only scripts from our origin.
+         A plain (not module) script, so it runs before first paint. -->
+    <script src="/theme.js"></script>
   </head>
   <body>
     <div id="root"></div>
