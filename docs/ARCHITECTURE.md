@@ -19,9 +19,13 @@ This document describes how the system is built and why. The PRD describes what 
 ## 2. System Overview
 
 ```
-┌──────────────┐        HTTPS         ┌───────────────────────────┐
-│   React SPA  │ ───────────────────► │      FastAPI (API)        │
-│ (Vite, TS)   │ ◄─────────────────── │  auth · routes · schemas  │
+┌──────────────┐  log in / sign up    ┌───────────────────────────┐
+│   React SPA  │ ───────────────────► │ Supabase Auth             │
+│ (Vite, TS)   │ ◄── access token ─── │ email+password · Google   │
+│              │                      └───────────────────────────┘
+│              │   HTTPS + Bearer     ┌───────────────────────────┐
+│              │ ───────────────────► │      FastAPI (API)        │
+│              │ ◄─────────────────── │ token check · routes      │
 └──────────────┘     JSON / SSE       └─────────────┬─────────────┘
                                                     │
                      ┌──────────────────────────────┼──────────────────────────┐
@@ -34,17 +38,20 @@ This document describes how the system is built and why. The PRD describes what 
                      └───────────────┬──────────────┴──────────────────────────┘
                                      │
                      ┌───────────────▼────────────────┐        ┌──────────────────────┐
-                     │ PostgreSQL + pgvector          │        │ LLM / Embedding      │
+                     │ Supabase Postgres + pgvector   │        │ LLM / Embedding      │
                      │ users · docs · chunks · quizzes│        │ providers (Gemini,   │
                      │ attempts · review schedule     │        │ Groq, local)         │
                      └───────────────┬────────────────┘        └──────────────────────┘
                                      │
                               ┌──────▼──────┐
-                              │ File storage│  (original PDFs)
+                              │ Supabase    │  (original PDFs,
+                              │ Storage     │   private bucket)
                               └─────────────┘
 ```
 
-**Deployment shape:** a single FastAPI app (API + background workers in the same codebase), Postgres, and object/file storage. The frontend is a static build served by a CDN or the same host.
+**Deployment shape:** a single FastAPI app (API + background workers in the same codebase) and one **Supabase** project providing Auth, Postgres (with pgvector) and Storage. The frontend is a static build served by a CDN.
+
+**Who does what in auth:** the browser talks to Supabase Auth directly to sign up, log in, confirm email and reset passwords, and gets a short-lived **access token** (a JWT signed by Supabase). It sends that token to our API as `Authorization: Bearer ...`. The API never sees passwords; it only checks the token's signature (with the project's public keys), expiry, issuer and audience, and takes the user id from its `sub` claim.
 
 ## 3. Tech Stack
 
@@ -52,14 +59,15 @@ This document describes how the system is built and why. The PRD describes what 
 |---|---|---|
 | Frontend | React, TypeScript, Vite, React Router, TanStack Query, Tailwind | Fast iteration; React Router for pages; server state handled by TanStack Query |
 | Backend | Python 3.12, FastAPI, Pydantic v2 | Strongest AI/PDF ecosystem; typed schemas double as validation |
-| Database | PostgreSQL + pgvector | One store for relational data and vectors; supports hybrid search |
+| Database | Supabase Postgres + pgvector | One store for relational data and vectors; supports hybrid search; managed, with a free tier |
 | PDF parsing | PyMuPDF (Docling/Unstructured if layout or tables need it) | Fast, page-accurate extraction |
-| LLM / embeddings | Gemini or Groq behind a provider interface | Free tiers; swappable for comparison |
+| LLM / embeddings | Gemini (primary) and Groq (fallback) behind a provider interface, called over REST with httpx | Free tiers; swappable for comparison; no vendor SDKs to keep in step |
 | Structured output | Instructor / provider-native structured output + Pydantic | Fewer hand-rolled retries |
 | Jobs | FastAPI background tasks → Postgres-backed queue → ARQ/Celery + Redis only if needed | Start simple, upgrade on evidence |
 | Migrations | Alembic | Standard with SQLAlchemy |
 | ORM / DB access | SQLAlchemy 2.x (async) + pgvector adapter | |
-| Auth | Email/password (argon2) and Google OAuth (OpenID Connect), session or JWT | Login gates every feature (PRD 7.10) |
+| Auth | Supabase Auth: email + password (with email confirmation and password reset) and Google OAuth, PKCE flow; FastAPI checks its JWTs with PyJWT | No password storage or OAuth plumbing of our own; login gates every feature (PRD 7.10) |
+| File storage | Supabase Storage, private bucket | Same project and permissions model as the database |
 | Evaluation | Custom harness + Ragas where useful | |
 | Tooling | uv or Poetry, Ruff, mypy, pytest; ESLint, Vitest on the frontend | |
 
@@ -173,8 +181,9 @@ Standard RAG: retrieve with the same hybrid search, answer from the chunks only,
 ## 5. Data Model
 
 ```
-users(id, email, password_hash NULL, google_sub NULL, display_name, created_at)
-      -- password_hash for email sign-up, google_sub for Google; at least one is set
+auth.users                    -- managed by Supabase Auth (email, password hash, Google identity)
+profiles(id REFERENCES auth.users ON DELETE CASCADE, display_name, created_at)
+      -- our own per-user data; every user_id below is an auth.users id
 
 documents(id, user_id, title, file_path, content_hash, page_count,
           status, error, created_at)
@@ -226,9 +235,9 @@ jobs(id, document_id, type, status, step, attempts, last_error, updated_at)
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/auth/register`, `/auth/login`, `/auth/logout` | Email accounts |
-| GET | `/auth/google`, `/auth/google/callback` | Google OAuth sign-in / sign-up |
-| GET | `/auth/me` | Current user (frontend checks login state) |
+| — | (Supabase Auth) | Sign up, log in, Google, email confirmation, password reset, log out: handled by Supabase from the browser, not by our API |
+| GET | `/auth/me` | The user the bearer token belongs to (proves the token check works) |
+| GET | `/health` | Liveness check, no login |
 | POST | `/documents` | Upload PDF (starts ingestion job) |
 | GET | `/documents`, `/documents/{id}` | List and status/progress |
 | DELETE | `/documents/{id}` | Delete document, chunks, file and quizzes; its stats move to History |
@@ -248,7 +257,7 @@ jobs(id, document_id, type, status, step, attempts, last_error, updated_at)
 
 Long operations (ingestion, quiz generation for large counts) return `202 Accepted` with a job ID; the client polls `GET /jobs/{id}` or subscribes to an SSE stream.
 
-**Every endpoint except the auth ones requires a logged-in user.**
+**Every endpoint except `/health` requires a valid Supabase access token** (`401` otherwise).
 
 **Never leak answers early:** the quiz fetch endpoint omits `answer`, `explanation` and `evidence` until the attempt is submitted.
 
@@ -290,7 +299,9 @@ Use an LLM judge to scale, but validate it against the human labels on a sample 
 
 - **Uploads:** type and size validation, store outside the web root, randomized filenames, no execution of file content, page and time limits on parsing to prevent resource exhaustion.
 - **Prompt injection:** PDF text is untrusted. Delimit it clearly in prompts, instruct the model to ignore instructions inside the document, validate outputs against schema, and never give the model tools or secrets.
-- **Auth:** argon2 password hashing, secure cookies (HttpOnly, SameSite) or short-lived JWTs, CSRF protection if cookie-based. Google OAuth uses the authorization-code flow with PKCE and `state`; the ID token is verified server-side and the client secret never reaches the browser. The frontend's login gate is only UX; the API enforces auth on every route.
+- **Auth:** Supabase Auth stores and hashes passwords and runs Google OAuth; the Google client secret lives in the Supabase dashboard, never in our code. The browser uses the **PKCE** flow: emailed links and the Google redirect carry a one-time code that only the browser that started the flow can redeem (on `/auth/callback` or `/auth/reset`), instead of tokens in the URL. New accounts must confirm their email. After login, redirects only go to same-site paths (`safeNext`), never to a URL taken from the link, to prevent open redirects.
+- **Token checks (API):** every request's JWT is verified with an explicit algorithm allow-list (ES256/RS256 via the project's JWKS, cached; HS256 only if a legacy `SUPABASE_JWT_SECRET` is set), and must have `aud = authenticated`, our project's `iss`, and an unexpired `exp`. The public anon key (itself a JWT with `aud = anon`) is rejected. 401 responses don't say why a token failed. The frontend's login gate is only UX.
+- **Browser keys:** only the Supabase publishable (anon) key is in the frontend; the service-role key never leaves the server. Every table the browser could reach gets Row Level Security.
 - **Authorization:** ownership checks on every document, quiz and attempt; shared quizzes are reachable only through an unguessable, unexpired share token, and the shared PDF only through a review-mode token.
 - **Expiry:** expired quizzes are rejected on read and hard-deleted by the cleanup job.
 - **Secrets:** provider keys server-side only, loaded from environment, never logged.
@@ -328,7 +339,7 @@ bookwyrm/
 │   │   ├── main.py
 │   │   ├── config.py
 │   │   ├── api/            # routers
-│   │   ├── core/           # auth, security, logging
+│   │   ├── core/           # auth (Supabase JWT checks), later security, logging
 │   │   ├── db/             # models, session, migrations (alembic)
 │   │   ├── ingestion/      # extract, structure, chunk, embed
 │   │   ├── retrieval/      # vector, fulltext, fusion, rerank
@@ -352,7 +363,7 @@ bookwyrm/
 │   ├── labels/
 │   ├── run_eval.py
 │   └── results/
-├── docker-compose.yml      # postgres+pgvector, app
+├── docker-compose.yml      # optional local postgres+pgvector (offline database tests)
 └── .env.example
 ```
 
@@ -367,8 +378,9 @@ bookwyrm/
 
 ## 14. Deployment
 
-- **Local:** `docker-compose up` starts Postgres with pgvector; backend and frontend run with hot reload.
-- **Production (simple path):** backend container on Fly.io, Railway or Render; managed Postgres with pgvector (Supabase, Neon or Railway); frontend on Vercel or Netlify; PDFs in S3-compatible storage (R2, S3, Supabase Storage).
+- **Local:** a hosted Supabase dev project (free tier) for Auth, Postgres and Storage; backend (`uv run uvicorn app.main:app --reload`) and frontend (`npm run dev`) run on the host with hot reload. `docker-compose.yml` keeps an optional local Postgres + pgvector for offline database tests.
+- **Frontend: Cloudflare Workers (static assets).** `frontend/wrangler.jsonc` serves `dist/` with `not_found_handling: single-page-application`, so `/about` or `/auth/callback?code=...` get `index.html` and React Router takes over. `frontend/public/_headers` adds security headers (no framing, nosniff, strict referrer) and a one-year cache for hashed `/assets/*`. Cloudflare builds from GitHub on every push to `main`; `VITE_*` values are **build variables** there, because Vite bakes them into the files at build time.
+- **Backend and data:** backend container on Fly.io, Railway or Render (or Cloudflare later); for now the deployed site reuses the dev Supabase project, with the live address added to its redirect URLs. A separate production Supabase project comes before real users.
 - **CI:** GitHub Actions running lint, type-check and tests on every push; migrations applied on deploy.
 
 ## 15. Key Decisions and Open Questions
@@ -379,10 +391,13 @@ bookwyrm/
 | Retrieval | Hybrid (vector + full-text, RRF) | Evaluation shows vector-only is as good |
 | Reranker | Optional, off by default | Evaluation shows a meaningful gain |
 | Job system | Background tasks / DB queue | Jobs need scheduling, priorities or heavy parallelism |
-| Auth | Email/password + Google OAuth, session or JWT | Adding more providers or teams |
+| Platform | Supabase for Auth, Postgres (pgvector) and Storage | Free-tier limits bite, or we need something Supabase can't do |
+| Auth | Supabase Auth (email + Google), PKCE, email confirmation; API verifies JWTs | Adding more providers or teams |
 | Quiz lifetime | Max 7 days, then hard delete | Users need longer-lived quizzes or history |
 | OCR | Out of scope for v1 | Users upload scanned documents |
 | Embedding model | Hosted default, local option | Cost, privacy or non-English quality demands change |
+| LLM provider | Gemini primary; Groq used for the rest of a run once Gemini fails | The evaluation shows Groq is as accurate, or Gemini's free tier is too limiting |
+| Structured output (M1) | JSON mode + Pydantic validation + re-ask with the error, not provider-native schemas | Malformed-reply rate is high enough in the evaluation to justify native schemas |
 | Non-English (e.g. Filipino) | Not guaranteed in v1 | A multilingual embedding model is tested in the evaluation |
 
 Record each real decision, with the evidence behind it, in `docs/DECISIONS.md` as the project progresses.

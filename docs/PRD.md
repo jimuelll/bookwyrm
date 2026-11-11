@@ -148,7 +148,10 @@ A short quiz on one weak topic, started by the user. It is a one-off: nothing is
 
 ### 7.10 Accounts (P0)
 - Login is required for every feature: upload, quiz generation, taking a quiz (including through a share link), results and progress. The landing page and the sample question stay public.
-- One login modal with two ways in: **Continue with Google** (OAuth) or **email + password** (sign up or log in). Google is shown in the UI from the start; it is wired up when the backend OAuth flow lands.
+- One login modal with two ways in: **Continue with Google** (OAuth) or **email + password** (sign up or log in). Accounts are run by **Supabase Auth**.
+- **Email sign-up needs confirmation:** after signing up the modal says "Check your email"; the link confirms the address, logs the reader in and continues where they were going. The email can be resent.
+- **Forgot password:** "Forgot password?" emails a reset link (without revealing whether the address has an account); the link opens a page to set a new password.
+- **Stay logged in:** the session survives reloads and browser restarts until the reader logs out.
 - If a logged-out user starts a gated action (e.g. Upload a PDF, opening a share link), the modal opens and the action continues after they log in.
 - Documents are private to their owner, except that a **review-mode** share link also gives takers read-only access to the PDF while the link is valid (7.11). Quizzes are private unless shared by link.
 
@@ -244,7 +247,7 @@ Publish results in the README.
 ## 14. Open Questions
 
 - Final product name?
-- Which LLM provider is the default (Gemini vs Groq)?
+- ~~Which LLM provider is the default (Gemini vs Groq)?~~ Decided: Gemini primary, Groq as automatic fallback; the evaluation compares them.
 - Add a reranker in v1, or only after measuring baseline retrieval quality?
 - Local embeddings or hosted?
 - Hosted or self-hosted deployment?
