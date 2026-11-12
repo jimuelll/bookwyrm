@@ -31,6 +31,8 @@ from app.ingestion import sandbox
 from app.ingestion.chunk import Chunk
 from app.ingestion.sandbox import TIMED_OUT, Limits, run_sandboxed
 from app.main import create_app
+from app.providers.base import ProviderError
+from app.providers.embeddings import EmbeddingProvider, FakeEmbedder
 from app.quotas import Usage
 from app.storage import LocalFileStore, StorageError, SupabaseFileStore
 from tests.conftest import MakePdf
@@ -48,6 +50,8 @@ class MemoryDocuments:
         self.rows: dict[UUID, DocumentRecord] = {}
         self.passages: dict[UUID, list[Chunk]] = {}
         self.history: dict[UUID, list[Status]] = {}
+        self.vectors: dict[UUID, dict[str, list[float]]] = {}
+        self.vector_model: dict[UUID, str] = {}
         self._tick = 0
 
     def _now(self) -> datetime:
@@ -106,11 +110,24 @@ class MemoryDocuments:
     async def chunks(self, document_id: UUID) -> list[Chunk]:
         return self.passages.get(document_id, [])
 
+    async def save_embeddings(self, document_id: UUID, vectors: dict[str, list[float]], model: str) -> None:
+        self.vectors[document_id] = vectors
+        self.vector_model[document_id] = model
+
+    async def similar(self, document_id: UUID, vector: list[float], limit: int) -> list[tuple[str, float]]:
+        # the vectors are unit length, so a dot product is the cosine similarity pgvector would report
+        scored = [
+            (label, sum(a * b for a, b in zip(vector, other, strict=True)))
+            for label, other in self.vectors.get(document_id, {}).items()
+        ]
+        return sorted(scored, key=lambda pair: -pair[1])[:limit]
+
     async def delete(self, user_id: str, document_id: UUID) -> bool:
         if await self.get(user_id, document_id) is None:
             return False
         del self.rows[document_id]
         self.passages.pop(document_id, None)
+        self.vectors.pop(document_id, None)
         return True
 
     async def fail_unfinished(self, message: str) -> int:
@@ -171,6 +188,55 @@ def test_a_pdf_is_stored_read_and_cut_into_passages(
 
     status = client.get(f"/documents/{document_id}", headers=auth(token()))
     assert (status.json()["status"], status.json()["error"]) == ("ready", None)
+
+
+class DownEmbedder:
+    """An embedding service that is out of quota or unreachable."""
+
+    model = "down"
+    dim = 768
+
+    async def embed(self, texts: list[str], *, kind: str) -> list[list[float]]:
+        raise ProviderError("gemini failed after 4 attempts: HTTP 429")
+
+
+def client_embedding_with(
+    store: MemoryDocuments, settings: Settings, embedder: EmbeddingProvider
+) -> TestClient:
+    verifier = TokenVerifier(issuer=ISSUER, public_key_for=lambda _: KEY.public_key())
+    return TestClient(create_app(settings, verifier, documents=store, embedder=embedder))
+
+
+def test_every_passage_gets_a_vector_before_the_book_is_ready(
+    store: MemoryDocuments, settings: Settings, make_pdf: MakePdf
+) -> None:
+    client = client_embedding_with(store, settings, FakeEmbedder())
+
+    document_id = UUID(upload(client, make_pdf([TEXT, TEXT])).json()["id"])
+
+    assert store.history[document_id] == ["queued", "extracting", "chunking", "embedding", "ready"]
+    assert set(store.vectors[document_id]) == {c.id for c in store.passages[document_id]}
+    assert store.vector_model[document_id] == "fake-hash"  # recorded, so a model change can be detected
+
+
+def test_a_book_is_still_readable_when_the_embedding_service_is_down(
+    store: MemoryDocuments, settings: Settings, make_pdf: MakePdf
+) -> None:
+    client = client_embedding_with(store, settings, DownEmbedder())
+
+    response = upload(client, make_pdf([TEXT]))
+
+    document_id = UUID(response.json()["id"])
+    assert store.history[document_id][-1] == "ready"  # quizzes still work; topics fall back to keywords
+    assert document_id not in store.vectors
+    assert client.get(f"/documents/{document_id}", headers=auth(token())).json()["error"] is None
+
+
+def test_without_an_embedder_the_embedding_step_is_skipped(
+    client: TestClient, store: MemoryDocuments, make_pdf: MakePdf
+) -> None:
+    document_id = UUID(upload(client, make_pdf([TEXT])).json()["id"])
+    assert "embedding" not in store.history[document_id]
 
 
 def test_refuses_a_file_that_is_not_a_pdf(client: TestClient, store: MemoryDocuments, tmp_path: Path) -> None:
@@ -393,7 +459,9 @@ def test_a_restart_marks_unfinished_books_failed(store: MemoryDocuments, setting
 
 def test_says_the_database_is_not_configured(settings: Settings) -> None:
     verifier = TokenVerifier(issuer=ISSUER, public_key_for=lambda _: KEY.public_key())
-    client = TestClient(create_app(settings, verifier))
+    # CI exports DATABASE_URL, so blank it explicitly rather than relying on its absence.
+    unconfigured = settings.model_copy(update={"database_url": ""})
+    client = TestClient(create_app(unconfigured, verifier))
     assert client.get("/documents", headers=auth(token())).status_code == 503
 
 
@@ -568,9 +636,15 @@ async def test_the_documents_tables_store_a_book_and_its_passages(
             )
         files = LocalFileStore(settings.storage_path)
         await files.put(user, document_id, make_pdf([TEXT]))
-        await ingest(sql, files, user, document_id, settings)
+        embedder = FakeEmbedder()
+        await ingest(sql, files, user, document_id, settings, embedder)
         found = await sql.get(user, document_id)
         assert found is not None and found.status == "ready"
+        # pgvector: the nearest passage to a query made of the same words is that passage
+        (query,) = await embedder.embed([TEXT], kind="query")
+        hits = await sql.similar(document_id, query, 3)
+        assert hits[0][0] == "c1" and hits[0][1] > 0.9
+        assert await sql.similar(uuid.uuid4(), query, 3) == []  # only within the one document
         assert await sql.get(str(uuid.uuid4()), document_id) is None  # not someone else's
         assert [d.id for d in await sql.list_for(user)] == [document_id]
         assert await sql.delete(user, document_id)  # chunks go with it (ON DELETE CASCADE)

@@ -23,6 +23,19 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.8-flash"
     groq_api_key: str = ""
     groq_model: str = "openai/gpt-oss-120b"
+    # Embeddings (app/providers/embeddings.py): what lets a topic find passages by meaning, not only by
+    # spelling. With no Gemini key there is no embedder and topics fall back to keyword search.
+    # The dimension is baked into the database column (chunks.embedding is vector(768)): changing it
+    # needs a migration and re-embedding every passage.
+    embedding_provider: Literal["gemini", "fake"] = "gemini"
+    embedding_model: str = "gemini-embedding-001"
+    embedding_dim: int = 768
+    # How the topic search keeps a passage: it must be one of the closest `semantic_top_k` AND at least
+    # this similar (cosine, 1 = same direction). A search by distance always returns *something*, even
+    # for a topic the PDF never mentions; the floor is what lets us say "nothing here about that".
+    # 0.5 is a starting guess for gemini-embedding-001: tune it against real PDFs (docs/ARCHITECTURE.md 10).
+    semantic_top_k: int = 12
+    semantic_min_similarity: float = 0.5
     # Writing a batch of questions is a long generation (a reasoning model can think for a while
     # before the first token), so 60s was cutting off healthy calls. This is the read timeout.
     llm_timeout_seconds: float = 180.0

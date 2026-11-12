@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
+import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -46,6 +47,7 @@ from app.profiles import (
     clean_display_name,
     default_display_name,
 )
+from app.providers.embeddings import EmbeddingProvider, build_embedder
 from app.quizzes import INTERRUPTED as QUIZ_INTERRUPTED
 from app.quizzes import (
     AttemptOut,
@@ -66,6 +68,7 @@ from app.quizzes import (
     write_quiz,
 )
 from app.quotas import MB, QuotaExceeded, RateLimited, UploadRateLimiter, Usage, UserLocks, check_quota
+from app.retrieval import TopicSearch
 from app.storage import FileStore, LocalFileStore, StorageError, SupabaseFileStore
 
 log = logging.getLogger(__name__)
@@ -118,6 +121,7 @@ def create_app(
     documents: DocumentStore | None = None,
     files: FileStore | None = None,
     quizzes: QuizStore | None = None,
+    embedder: EmbeddingProvider | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     if verifier is None and settings.supabase_url:
@@ -142,6 +146,10 @@ def create_app(
     )
     quiz_locks = UserLocks()
     quiz_progress = ProgressBoard()
+    # One embedder for the whole app, sharing one pooled HTTP client (closed on shutdown). None when no
+    # key is set: uploads then skip the embedding step and topics are found by keywords alone.
+    embed_client = httpx.AsyncClient(timeout=settings.llm_timeout_seconds)
+    embedder = embedder or build_embedder(settings, embed_client)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -163,6 +171,7 @@ def create_app(
             except Exception:
                 log.exception("could not check for interrupted quizzes")
         yield
+        await embed_client.aclose()
         if isinstance(file_store, SupabaseFileStore):
             await file_store.aclose()  # close its pooled HTTP connections cleanly on shutdown
 
@@ -226,6 +235,24 @@ def create_app(
     Profiles = Annotated[ProfileStore, Depends(profile_store)]
     Documents = Annotated[DocumentStore, Depends(document_store)]
     Quizzes = Annotated[QuizStore, Depends(quiz_store)]
+
+    # One TopicSearch for the app, made the first time it is needed (it needs the document store, which
+    # is only resolved per request) so its cache of topic vectors lives as long as the app does.
+    searches: list[TopicSearch] = []
+
+    def topic_search(store: Documents) -> TopicSearch:
+        if not searches:
+            searches.append(
+                TopicSearch(
+                    store,
+                    embedder,
+                    top_k=settings.semantic_top_k,
+                    min_similarity=settings.semantic_min_similarity,
+                )
+            )
+        return searches[0]
+
+    Search = Annotated[TopicSearch, Depends(topic_search)]
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -349,7 +376,7 @@ def create_app(
             received.path.unlink(missing_ok=True)  # copied into storage, or not needed
 
         # runs after this response is sent; the reader watches the status change by polling
-        background.add_task(ingest, store, file_store, user.id, document_id, settings)
+        background.add_task(ingest, store, file_store, user.id, document_id, settings, embedder)
         return DocumentOut.of(record)
 
     @app.get("/documents")
@@ -417,6 +444,7 @@ def create_app(
         docs: Documents,
         store: Quizzes,
         background: BackgroundTasks,
+        search: Search,
     ) -> QuizOut:
         """Ask for a quiz from one of the reader's documents. 202: being written (poll GET /quizzes/{id}).
         409: the PDF isn't ready, or a quiz is already being written. 429: too many; see Retry-After."""
@@ -436,6 +464,7 @@ def create_app(
             await docs.chunks(document_id),
             pages=body.pages,
             topic=body.topic,
+            semantic=await search.find(document_id, body.topic) if body.topic else None,
             hard_max=settings.max_quiz_questions,
         )
         if scope.passages == 0:
@@ -466,7 +495,7 @@ def create_app(
             quiz = await store.create(
                 user_id=user.id, document_id=document_id, config=stored_config(body.config(count))
             )
-        background.add_task(write_quiz, store, docs, quiz, settings, None, quiz_progress)
+        background.add_task(write_quiz, store, docs, quiz, settings, None, quiz_progress, search)
         return QuizOut.of(quiz, document.title)
 
     @app.get("/documents/{document_id}/quiz-scope")
@@ -474,6 +503,7 @@ def create_app(
         document_id: UUID,
         user: User,
         docs: Documents,
+        search: Search,
         topic: Annotated[str | None, Query(max_length=200)] = None,
     ) -> ScopeOut:
         """Before asking for a quiz: how much of this document a topic (or all of it) covers, and how
@@ -482,7 +512,12 @@ def create_app(
         if document is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "That PDF isn't in your library.")
         tidy = clean_topic(topic)
-        scope = measure(await docs.chunks(document_id), topic=tidy, hard_max=settings.max_quiz_questions)
+        scope = measure(
+            await docs.chunks(document_id),
+            topic=tidy,
+            semantic=await search.find(document_id, tidy) if tidy else None,
+            hard_max=settings.max_quiz_questions,
+        )
         return ScopeOut.of(scope, tidy)
 
     @app.get("/quizzes")

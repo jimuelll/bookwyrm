@@ -5,7 +5,8 @@ The flow (docs/ARCHITECTURE.md 4.1):
                -> quick checks (is it a PDF, damaged, password, page limit)  -> 4xx at once if not
                -> same file uploaded before? return that book
                -> store the file, create the row (status=queued), answer 202
-  background:  extracting (read each page's text) -> chunking (cut into passages, save them) -> ready
+  background:  extracting (read each page's text) -> chunking (cut into passages, save them)
+               -> embedding (give each passage a vector, so topics match by meaning) -> ready
                any PdfError on the way -> failed, with the message for the reader
 The browser polls GET /documents to watch the status change.
 """
@@ -32,13 +33,15 @@ from app.db.models import FILENAME_MAX, TITLE_MAX, ChunkRow, Document
 from app.ingestion import sandbox
 from app.ingestion.chunk import Chunk, chunk_pages
 from app.ingestion.extract import PdfError
+from app.providers.base import ProviderError
+from app.providers.embeddings import EmbeddingProvider
 from app.quotas import Usage
 from app.storage import FileStore
 
 log = logging.getLogger(__name__)
 
-Status = Literal["queued", "extracting", "chunking", "ready", "failed"]
-UNFINISHED: tuple[Status, ...] = ("queued", "extracting", "chunking")
+Status = Literal["queued", "extracting", "chunking", "embedding", "ready", "failed"]
+UNFINISHED: tuple[Status, ...] = ("queued", "extracting", "chunking", "embedding")
 READ_SIZE = 1024 * 1024  # stream uploads 1 MB at a time
 
 
@@ -149,6 +152,15 @@ class DocumentStore(Protocol):
 
     async def chunks(self, document_id: UUID) -> list[Chunk]:
         """The document's passages in reading order, with the ids the chunker gave them ("c1", "c2", ...)."""
+        ...
+
+    async def save_embeddings(self, document_id: UUID, vectors: dict[str, list[float]], model: str) -> None:
+        """Store each passage's vector, keyed by its label ("c1", ...), and which model wrote them."""
+        ...
+
+    async def similar(self, document_id: UUID, vector: list[float], limit: int) -> list[tuple[str, float]]:
+        """The `limit` passages nearest to `vector`, as (label, cosine similarity), most similar first.
+        Passages without an embedding are not considered."""
         ...
 
     async def delete(self, user_id: str, document_id: UUID) -> bool: ...
@@ -295,6 +307,29 @@ class SqlDocumentStore:
                 for r in rows
             ]
 
+    async def save_embeddings(self, document_id: UUID, vectors: dict[str, list[float]], model: str) -> None:
+        async with self._sessions() as session, session.begin():
+            for label, vector in vectors.items():
+                await session.execute(
+                    update(ChunkRow)
+                    .where(ChunkRow.document_id == document_id, ChunkRow.ordinal == int(label[1:]))
+                    .values(embedding=vector, embedding_model=model)
+                )
+
+    async def similar(self, document_id: UUID, vector: list[float], limit: int) -> list[tuple[str, float]]:
+        # `<=>` is pgvector's cosine *distance* (0 = same direction, 2 = opposite); 1 - distance is the
+        # similarity we reason in. Ordering by the distance expression is what makes this a "nearest
+        # neighbours" query. Filtering to one document first keeps it a scan over a few hundred rows.
+        distance = ChunkRow.embedding.cosine_distance(vector)
+        async with self._sessions() as session:
+            rows = await session.execute(
+                select(ChunkRow.ordinal, distance)
+                .where(ChunkRow.document_id == document_id, ChunkRow.embedding.is_not(None))
+                .order_by(distance)
+                .limit(limit)
+            )
+            return [(chunk_label(ordinal), 1.0 - float(d)) for ordinal, d in rows]
+
     async def delete(self, user_id: str, document_id: UUID) -> bool:
         async with self._sessions() as session, session.begin():
             result = await session.execute(
@@ -321,7 +356,12 @@ INTERRUPTED = "Reading this PDF was interrupted. Remove it and upload it again."
 
 
 async def ingest(
-    store: DocumentStore, files: FileStore, user_id: str, document_id: UUID, settings: Settings
+    store: DocumentStore,
+    files: FileStore,
+    user_id: str,
+    document_id: UUID,
+    settings: Settings,
+    embedder: EmbeddingProvider | None = None,
 ) -> None:
     """Read a stored PDF and save its passages, recording each step in `status`.
 
@@ -359,6 +399,10 @@ async def ingest(
         if not chunks:
             raise PdfError("No text could be read from this PDF.")
         await store.save_chunks(document_id, chunks)
+        if embedder is not None:
+            if not await store.set_status(document_id, "embedding"):
+                return
+            await embed_passages(store, document_id, chunks, embedder)
         await store.set_status(document_id, "ready")
     except PdfError as e:
         await store.set_status(document_id, "failed", str(e))
@@ -368,6 +412,25 @@ async def ingest(
         await store.set_status(document_id, "failed", "Something went wrong reading this PDF. Try again.")
     finally:
         pdf.unlink(missing_ok=True)
+
+
+async def embed_passages(
+    store: DocumentStore, document_id: UUID, chunks: list[Chunk], embedder: EmbeddingProvider
+) -> None:
+    """Give every saved passage a vector. Best effort: the book is readable without them.
+
+    If the embedding service is down or out of quota, the book still becomes `ready`: quizzes work, and
+    topics are found by keywords (the passages simply have no vector yet). Failing the whole upload
+    because a nice-to-have step failed would be the worse trade, and the reader would have to re-upload.
+    """
+    try:
+        vectors = await embedder.embed([c.text for c in chunks], kind="document")
+    except ProviderError as e:
+        log.warning("document %s: embedding skipped, topics will use keywords only (%s)", document_id, e)
+        return
+    await store.save_embeddings(
+        document_id, {chunk_label(i): v for i, v in enumerate(vectors, start=1)}, embedder.model
+    )
 
 
 def new_document_id() -> UUID:

@@ -260,6 +260,41 @@ def test_the_scope_of_a_quiz_can_be_measured_before_asking(client: TestClient, b
     assert client.get(f"/documents/{book}/quiz-scope", headers=auth(token(sub=BEN))).status_code == 404
 
 
+class MeaningEmbedder:
+    """Knows what a hash of words cannot: that "making sugar from sunlight" is about photosynthesis."""
+
+    model = "meaning"
+    dim = 768
+
+    async def embed(self, texts: list[str], *, kind: str) -> list[list[float]]:
+        out = []
+        for text in texts:
+            vector = [0.0] * 768
+            vector[0 if ("photosynthesis" in text.lower() or "sunlight" in text.lower()) else 1] = 1.0
+            out.append(vector)
+        return out
+
+
+def test_a_topic_is_found_by_meaning_when_the_text_never_uses_its_words(
+    settings: Settings, documents: MemoryDocuments, quizzes: MemoryQuizzes, make_pdf: MakePdf
+) -> None:
+    topic = "making sugar from sunlight"  # the book says "photosynthesis"; none of these words appear
+    verifier = TokenVerifier(issuer=ISSUER, public_key_for=lambda _: KEY.public_key())
+    smart = TestClient(
+        create_app(settings, verifier, documents=documents, quizzes=quizzes, embedder=MeaningEmbedder())
+    )
+    plain = make_client(settings, documents, MemoryQuizzes())
+    book = str(upload(smart, make_pdf([PAGE_1, PAGE_2])).json()["id"])
+
+    by_meaning = smart.get(f"/documents/{book}/quiz-scope", params={"topic": topic}, headers=auth(token()))
+    by_words = plain.get(f"/documents/{book}/quiz-scope", params={"topic": topic}, headers=auth(token()))
+
+    assert by_words.json()["passages"] == 0  # keywords alone find nothing
+    assert by_meaning.json()["passages"] == 1  # the embedding search finds the photosynthesis passage
+    assert ask(smart, book, topic=topic).status_code == 202  # and a quiz on it can be asked for
+    assert ask(plain, book, topic=topic).status_code == 422
+
+
 def test_refuses_short_answer_questions_until_they_can_be_marked(client: TestClient, book: str) -> None:
     assert ask(client, book, types=["short_answer"]).status_code == 422
 

@@ -97,13 +97,15 @@ class QuizResult:
     rounds: int = 0
 
 
-def select_chunks(chunks: list[Chunk], config: QuizConfig) -> list[Chunk]:
+def select_chunks(
+    chunks: list[Chunk], config: QuizConfig, semantic: dict[str, float] | None = None
+) -> list[Chunk]:
     """Spread the passages evenly over the document (or page range), so the quiz covers all of it.
 
     Similarity search would cluster around one theme; for "quiz me on this whole PDF" even coverage
     is what we want. With a topic, the same even spread runs over just the passages that match it.
     """
-    chunks = in_scope(chunks, pages=config.pages, topic=config.topic)
+    chunks = in_scope(chunks, pages=config.pages, topic=config.topic, semantic=semantic)
     if not chunks:
         if config.topic:
             raise GenerationError(
@@ -173,10 +175,11 @@ async def generate_quiz(
     config: QuizConfig,
     provider: LLMProvider,
     on_progress: Callable[[Progress], None] | None = None,
+    semantic: dict[str, float] | None = None,
 ) -> QuizResult:
     if config.count < 1:
         raise GenerationError("Ask for at least one question.")
-    context = select_chunks(chunks, config)
+    context = select_chunks(chunks, config, semantic)
     by_id = {c.id: c for c in context}
     result = QuizResult(questions=[])
 

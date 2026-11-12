@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -22,8 +23,9 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 DISPLAY_NAME_MAX = 40
 TITLE_MAX = 200
 FILENAME_MAX = 255
-# the ingestion status machine (docs/ARCHITECTURE.md 4.1); `embedding` joins it when embeddings do
-DOCUMENT_STATUSES = ("queued", "extracting", "chunking", "ready", "failed")
+# the ingestion status machine (docs/ARCHITECTURE.md 4.1)
+DOCUMENT_STATUSES = ("queued", "extracting", "chunking", "embedding", "ready", "failed")
+EMBEDDING_DIM = 768  # chunks.embedding is vector(768); Settings.embedding_dim must agree
 QUIZ_STATUSES = ("generating", "ready", "failed")
 TOPIC_MAX = 80  # the same limit the generation schema puts on a topic (app/generation/schemas.py)
 
@@ -96,6 +98,10 @@ class ChunkRow(Base):
     token_count: Mapped[int]
     # [[offset in text, page number], ...]: where each page's text starts, so a quote maps to one page
     page_marks: Mapped[list[Any]] = mapped_column(JSONB)
+    # The passage as a point in "meaning space" (app/providers/embeddings.py). NULL until embedded, and
+    # for good if no embedder was configured; keyword search covers those passages.
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM))
+    embedding_model: Mapped[str | None] = mapped_column(String(64))  # which model wrote it
 
 
 class Quiz(Base):

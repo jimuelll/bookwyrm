@@ -62,3 +62,28 @@ def test_a_topic_narrows_what_is_measured() -> None:
         15,
     )
     assert measure(BOOK, topic="French Revolution", hard_max=20).maximum == 0
+
+
+# --- meaning as well as words ---
+
+
+def test_a_passage_the_embedding_search_found_is_in_scope_even_without_the_words() -> None:
+    # "energy production" shares no word with the mitochondria passage; the embeddings found it anyway
+    assert match_topic(BOOK, "energy production") == []
+    assert [c.id for c in match_topic(BOOK, "energy production", {"c1": 0.71})] == ["c1"]
+
+
+def test_keyword_and_meaning_matches_are_combined_in_reading_order() -> None:
+    found = match_topic(BOOK, "osmosis", semantic={"c1": 0.6})  # c3 by its word, c1 by its meaning
+
+    assert [c.id for c in found] == ["c1", "c3"]
+
+
+def test_meaning_alone_can_answer_a_topic_made_only_of_filler_words() -> None:
+    assert [c.id for c in match_topic(BOOK, "the of and", {"c4": 0.9})] == ["c4"]
+
+
+def test_measuring_counts_the_passages_found_by_meaning_too() -> None:
+    scope = measure(BOOK, topic="energy production", semantic={"c1": 0.7}, hard_max=20)
+
+    assert (scope.passages, scope.page_first, scope.page_last) == (1, 1, 1)

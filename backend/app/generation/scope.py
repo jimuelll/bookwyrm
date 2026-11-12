@@ -6,11 +6,20 @@ range. Two questions are answered here, before any model is called:
   which passages are in scope?   `in_scope`  (for a topic: `match_topic`, a keyword search)
   how many questions fit?        `measure`   (a suggestion and a ceiling, from the amount of text)
 
-Topic matching is *lexical* retrieval: it finds passages that contain the topic's words, weighted so a
-rare word counts for more than a common one (the idea behind BM25, the classic search-engine formula).
-It is cheap, needs no model and is easy to reason about, but it only finds the words themselves: ask for
-"energy production" and a passage that only says "ATP synthesis" is missed. Embeddings (M2) fix that by
-comparing meaning instead of spelling; they slot in behind `match_topic` without changing its callers.
+Topic matching uses two kinds of retrieval, and keeps a passage that either one finds:
+
+  lexical   finds passages that contain the topic's words, weighted so a rare word counts for more than
+            a common one (the idea behind BM25, the classic search-engine formula). Cheap, needs no
+            model, and exact: it is what finds a name, a number or a formula. But it only finds the
+            words themselves: ask for "energy production" and a passage that only says "ATP synthesis"
+            is missed.
+  semantic  finds passages whose *meaning* is close to the topic's, by comparing embeddings
+            (app/providers/embeddings.py). It finds the ATP passage, but can blur exact terms.
+
+Each covers the other's blind spot, which is why search engines combine them ("hybrid search"). The
+semantic half is looked up by the caller (it needs the database and a model, and this module stays pure)
+and handed in as `semantic`: {passage id: similarity}. We take the union rather than a ranked fusion
+(RRF) because a quiz scope is a *set* of passages, kept in reading order, not a top-N list.
 """
 
 import math
@@ -67,8 +76,15 @@ def topic_terms(topic: str) -> list[str]:
     return list(dict.fromkeys(_stem(w) for w in words))
 
 
-def match_topic(chunks: list[Chunk], topic: str) -> list[Chunk]:
-    """The passages that are about `topic`, in reading order. Empty if none mentions it."""
+def match_topic(chunks: list[Chunk], topic: str, semantic: dict[str, float] | None = None) -> list[Chunk]:
+    """The passages that are about `topic`, in reading order: those that use its words, plus those the
+    embedding search found (`semantic`). Empty if neither finds any."""
+    wanted = {c.id for c in keyword_matches(chunks, topic)} | set(semantic or ())
+    return [c for c in chunks if c.id in wanted]
+
+
+def keyword_matches(chunks: list[Chunk], topic: str) -> list[Chunk]:
+    """The lexical half of `match_topic`: passages that contain the topic's words."""
     terms = topic_terms(topic)
     if not terms or not chunks:
         return []
@@ -90,7 +106,11 @@ def match_topic(chunks: list[Chunk], topic: str) -> list[Chunk]:
 
 
 def in_scope(
-    chunks: list[Chunk], *, pages: tuple[int, int] | None = None, topic: str | None = None
+    chunks: list[Chunk],
+    *,
+    pages: tuple[int, int] | None = None,
+    topic: str | None = None,
+    semantic: dict[str, float] | None = None,
 ) -> list[Chunk]:
     """The passages a quiz may be written from: within the pages, then about the topic (each if given)."""
     if pages:
@@ -98,7 +118,7 @@ def in_scope(
         # trim passages that straddle the edge, so the model never sees text outside the range
         chunks = [trimmed for c in chunks if (trimmed := c.within(first, last))]
     if topic:
-        chunks = match_topic(chunks, topic)
+        chunks = match_topic(chunks, topic, semantic)
     return chunks
 
 
@@ -123,10 +143,15 @@ def count_limits(tokens: int, hard_max: int) -> tuple[int, int]:
 
 
 def measure(
-    chunks: list[Chunk], *, pages: tuple[int, int] | None = None, topic: str | None = None, hard_max: int
+    chunks: list[Chunk],
+    *,
+    pages: tuple[int, int] | None = None,
+    topic: str | None = None,
+    semantic: dict[str, float] | None = None,
+    hard_max: int,
 ) -> Scope:
     """How much material a scope holds, and how many questions suit it."""
-    chosen = in_scope(chunks, pages=pages, topic=topic)
+    chosen = in_scope(chunks, pages=pages, topic=topic, semantic=semantic)
     tokens = sum(c.token_count for c in chosen)
     suggested, maximum = count_limits(tokens, hard_max)
     return Scope(

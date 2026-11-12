@@ -35,6 +35,7 @@ from app.generation.schemas import Difficulty, Question
 from app.generation.scope import Scope, clean_topic
 from app.providers.base import LLMProvider, ProviderError
 from app.providers.factory import build_provider
+from app.retrieval import TopicSearch
 
 log = logging.getLogger(__name__)
 
@@ -463,6 +464,7 @@ async def write_quiz(
     settings: Settings,
     provider: LLMProvider | None = None,
     board: ProgressBoard | None = None,
+    search: TopicSearch | None = None,
 ) -> None:
     """Write a quiz's questions from its document's stored passages, then mark it ready or failed.
 
@@ -478,11 +480,13 @@ async def write_quiz(
             if board:
                 board.update(quiz.id, progress)
 
+        # passages the embedding search finds for the topic, on top of those that use its words
+        semantic = await search.find(quiz.document_id, config.topic) if search and config.topic else None
         if provider is not None:
-            result = await generate_quiz(chunks, config, provider, note)
+            result = await generate_quiz(chunks, config, provider, note, semantic)
         else:
             async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
-                result = await generate_quiz(chunks, config, build_provider(settings, client), note)
+                result = await generate_quiz(chunks, config, build_provider(settings, client), note, semantic)
         if not result.questions:
             log.warning("quiz %s: nothing passed the checks (%s)", quiz.id, dict(result.rejected))
             await quizzes.fail(quiz.id, NOTHING_PASSED)
