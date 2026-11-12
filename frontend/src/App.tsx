@@ -12,6 +12,7 @@ import { AttemptPage } from './features/quiz/AttemptPage'
 import { QuizPage } from './features/quiz/QuizPage'
 import { QuizSetupPage } from './features/quiz/QuizSetupPage'
 import { SettingsPage } from './features/settings/SettingsPage'
+import { StatsPage } from './features/stats/StatsPage'
 
 /** `authBackend` defaults to Supabase; tests pass an in-memory fake. */
 export default function App({ authBackend }: { authBackend?: AuthBackend }) {
@@ -36,6 +37,14 @@ export default function App({ authBackend }: { authBackend?: AuthBackend }) {
               element={
                 <RequireLogin title="Log in to write a quiz">
                   <QuizSetupPage />
+                </RequireLogin>
+              }
+            />
+            <Route
+              path="library/:documentId/stats"
+              element={
+                <RequireLogin title="Log in to see your progress">
+                  <StatsPage />
                 </RequireLogin>
               }
             />

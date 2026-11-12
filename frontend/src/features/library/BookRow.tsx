@@ -80,6 +80,9 @@ export function BookRow({ doc, duplicate = false, quiz, onRemove }: Props) {
                 {quiz ? 'Write a new quiz' : 'Write a quiz'}
               </Link>
             )}
+            <Link className="text-link" to={`/library/${doc.id}/stats`} aria-label={`See your progress on ${doc.title}`}>
+              Progress
+            </Link>
           </p>
         )}
         {removeError && <p className="shelf-book-error" role="alert">{removeError}</p>}

@@ -158,6 +158,13 @@ class DocumentStore(Protocol):
         """Store each passage's vector, keyed by its label ("c1", ...), and which model wrote them."""
         ...
 
+    async def missing_embeddings(self, model: str) -> dict[UUID, list[tuple[str, str]]]:
+        """Passages of ready books that have no vector from `model`: {document: [(label, text), ...]}.
+
+        That is passages never embedded (read before embeddings existed, or while the service was down)
+        and passages embedded by a different model, whose vectors can't be compared with the new ones."""
+        ...
+
     async def similar(self, document_id: UUID, vector: list[float], limit: int) -> list[tuple[str, float]]:
         """The `limit` passages nearest to `vector`, as (label, cosine similarity), most similar first.
         Passages without an embedding are not considered."""
@@ -316,6 +323,24 @@ class SqlDocumentStore:
                     .values(embedding=vector, embedding_model=model)
                 )
 
+    async def missing_embeddings(self, model: str) -> dict[UUID, list[tuple[str, str]]]:
+        async with self._sessions() as session:
+            rows = await session.execute(
+                select(ChunkRow.document_id, ChunkRow.ordinal, ChunkRow.text)
+                .join(Document, Document.id == ChunkRow.document_id)
+                .where(
+                    Document.status == "ready",
+                    # `IS DISTINCT FROM` is "not equal" that also counts NULL as different: a plain
+                    # `!=` against NULL is never true, so never-embedded passages would be skipped
+                    ChunkRow.embedding_model.is_distinct_from(model) | ChunkRow.embedding.is_(None),
+                )
+                .order_by(ChunkRow.document_id, ChunkRow.ordinal)
+            )
+            found: dict[UUID, list[tuple[str, str]]] = {}
+            for document_id, ordinal, text in rows:
+                found.setdefault(document_id, []).append((chunk_label(ordinal), text))
+            return found
+
     async def similar(self, document_id: UUID, vector: list[float], limit: int) -> list[tuple[str, float]]:
         # `<=>` is pgvector's cosine *distance* (0 = same direction, 2 = opposite); 1 - distance is the
         # similarity we reason in. Ordering by the distance expression is what makes this a "nearest
@@ -431,6 +456,28 @@ async def embed_passages(
     await store.save_embeddings(
         document_id, {chunk_label(i): v for i, v in enumerate(vectors, start=1)}, embedder.model
     )
+
+
+async def backfill_embeddings(store: DocumentStore, embedder: EmbeddingProvider) -> tuple[int, int]:
+    """Embed every passage that lacks a vector from the current model. Returns (books, passages) done.
+
+    Safe to run again: it only touches what is missing, so a run that stopped halfway (a rate limit, a
+    closed laptop) is finished by running it again. A book whose embedding call fails is skipped and
+    left for the next run, instead of stopping the rest.
+    """
+    books = passages = 0
+    for document_id, missing in (await store.missing_embeddings(embedder.model)).items():
+        try:
+            vectors = await embedder.embed([text for _, text in missing], kind="document")
+        except ProviderError as e:
+            log.warning("document %s: could not embed %d passages (%s)", document_id, len(missing), e)
+            continue
+        await store.save_embeddings(
+            document_id, {label: v for (label, _), v in zip(missing, vectors, strict=True)}, embedder.model
+        )
+        books += 1
+        passages += len(missing)
+    return books, passages
 
 
 def new_document_id() -> UUID:

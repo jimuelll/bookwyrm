@@ -1,0 +1,33 @@
+/* Progress on one PDF: the same narrow paper column as the quiz screens (.sheet.quiz), rules instead of
+   cards. Level is always said in words (the group's title), never by colour alone. See docs/DESIGN.md. */
+
+.stats-summary { margin: 24px 0 0; display: flex; flex-wrap: wrap; gap: 8px 48px; }
+.stats-summary dt { font-family: var(--font-caps); font-size: 15px; letter-spacing: .08em; color: var(--muted); }
+.stats-summary dd { margin: 2px 0 0; font-family: var(--font-display); font-size: 44px; line-height: 1.1; }
+
+.stats-line { margin: 22px 0 0; max-width: 420px; }
+.stats-line svg { display: block; width: 100%; height: auto; border-bottom: 1px solid var(--rule); }
+.stats-pass { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 4; }
+.stats-trace { stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+.stats-dot { fill: var(--accent); }
+.stats-line figcaption { margin-top: 6px; font-family: var(--font-display); font-style: italic; font-size: 16px; color: var(--muted); }
+
+.stats-group { margin-top: 34px; }
+.stats-group h2 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 26px; }
+.stats-note { margin: 2px 0 0; font-size: 16px; color: var(--muted); }
+.stats-group ul { list-style: none; margin: 12px 0 0; padding: 0; }
+.stats-topic {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 4px 18px;
+  padding: 12px 0; border-top: 1px solid var(--rule);
+}
+.stats-topic:last-child { border-bottom: 1px solid var(--rule); }
+.stats-topic-name { font-size: 18px; overflow-wrap: anywhere; }
+.stats-topic-pages { margin-left: 6px; font-family: var(--font-display); font-style: italic; font-size: 16px; color: var(--accent); white-space: nowrap; }
+.stats-topic-score { font-size: 16px; color: var(--muted); white-space: nowrap; }
+.stats-foot { margin: 30px 0 0; max-width: 62ch; font-size: 16px; line-height: 1.5; color: var(--muted); }
+
+@media (max-width: 640px) {
+  .stats-topic { grid-template-columns: 1fr; }
+  .stats-topic .btn { width: 100%; }
+  .stats-summary dd { font-size: 38px; }
+}

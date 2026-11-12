@@ -23,6 +23,7 @@ from app.documents import (
     DocumentRecord,
     DuplicateDocument,
     Status,
+    backfill_embeddings,
     clean_filename,
     ingest,
     title_from_filename,
@@ -113,6 +114,16 @@ class MemoryDocuments:
     async def save_embeddings(self, document_id: UUID, vectors: dict[str, list[float]], model: str) -> None:
         self.vectors[document_id] = vectors
         self.vector_model[document_id] = model
+
+    async def missing_embeddings(self, model: str) -> dict[UUID, list[tuple[str, str]]]:
+        found: dict[UUID, list[tuple[str, str]]] = {}
+        for document_id, chunks in self.passages.items():
+            if self.rows[document_id].status != "ready":
+                continue
+            has = self.vectors.get(document_id, {}) if self.vector_model.get(document_id) == model else {}
+            if missing := [(c.id, c.text) for c in chunks if c.id not in has]:
+                found[document_id] = missing
+        return found
 
     async def similar(self, document_id: UUID, vector: list[float], limit: int) -> list[tuple[str, float]]:
         # the vectors are unit length, so a dot product is the cosine similarity pgvector would report
@@ -244,6 +255,80 @@ def test_without_an_embedder_the_embedding_step_is_skipped(
 ) -> None:
     document_id = UUID(upload(client, make_pdf([TEXT])).json()["id"])
     assert "embedding" not in store.history[document_id]
+
+
+# --- giving older books their vectors ---
+
+
+async def shelved(store: MemoryDocuments, texts: list[str], status: Status = "ready") -> UUID:
+    """A book on the shelf with one passage per text, and no vectors."""
+    document_id = uuid.uuid4()
+    await store.create(
+        id=document_id,
+        user_id=ANA,
+        title="t",
+        filename="t.pdf",
+        page_count=1,
+        content_hash=uuid.uuid4().hex * 2,
+        size_bytes=1,
+    )
+    chunks = [
+        Chunk(id=f"c{i}", text=t, page_start=1, page_end=1, token_count=10, page_marks=((0, 1),))
+        for i, t in enumerate(texts, start=1)
+    ]
+    await store.save_chunks(document_id, chunks)
+    await store.set_status(document_id, status)
+    return document_id
+
+
+async def test_the_backfill_gives_every_unembedded_passage_a_vector(store: MemoryDocuments) -> None:
+    old = await shelved(store, ["Mitochondria make ATP.", "Ribosomes build proteins."])
+
+    assert await backfill_embeddings(store, FakeEmbedder()) == (1, 2)
+
+    assert set(store.vectors[old]) == {"c1", "c2"}
+    assert store.vector_model[old] == "fake-hash"
+
+
+async def test_running_the_backfill_again_finds_nothing_left_to_do(store: MemoryDocuments) -> None:
+    await shelved(store, ["Mitochondria make ATP."])
+    await backfill_embeddings(store, FakeEmbedder())
+
+    assert await backfill_embeddings(store, FakeEmbedder()) == (0, 0)
+
+
+async def test_a_changed_model_means_every_passage_is_redone(store: MemoryDocuments) -> None:
+    # vectors from two models can't be compared, so switching models re-embeds the lot
+    await shelved(store, ["Mitochondria make ATP."])
+    await backfill_embeddings(store, FakeEmbedder())
+
+    class NewModel(FakeEmbedder):
+        model = "fake-hash-v2"
+
+    assert await backfill_embeddings(store, NewModel()) == (1, 1)
+
+
+async def test_the_backfill_leaves_books_still_being_read_alone(store: MemoryDocuments) -> None:
+    reading = await shelved(store, ["Mitochondria make ATP."], status="chunking")
+
+    assert await backfill_embeddings(store, FakeEmbedder()) == (0, 0)
+    assert reading not in store.vectors  # ingestion will embed it itself
+
+
+async def test_a_book_that_fails_is_skipped_and_the_rest_carry_on(store: MemoryDocuments) -> None:
+    class FlakyEmbedder(FakeEmbedder):
+        async def embed(self, texts: list[str], *, kind: str) -> list[list[float]]:  # type: ignore[override]
+            if any("POISON" in t for t in texts):
+                raise ProviderError("gemini failed after 4 attempts: HTTP 429")
+            return await super().embed(texts, kind=kind)  # type: ignore[arg-type]
+
+    bad = await shelved(store, ["POISON"])
+    good = await shelved(store, ["Ribosomes build proteins."])
+
+    assert await backfill_embeddings(store, FlakyEmbedder()) == (1, 1)
+
+    assert good in store.vectors and bad not in store.vectors
+    assert list(await store.missing_embeddings("fake-hash")) == [bad]  # left for the next run
 
 
 def test_refuses_a_file_that_is_not_a_pdf(client: TestClient, store: MemoryDocuments, tmp_path: Path) -> None:
@@ -652,6 +737,14 @@ async def test_the_documents_tables_store_a_book_and_its_passages(
         hits = await sql.similar(document_id, query, 3)
         assert hits[0][0] == "c1" and hits[0][1] > 0.9
         assert await sql.similar(uuid.uuid4(), query, 3) == []  # only within the one document
+        # the backfill's query: another model's vectors are "missing", and so are NULLs
+        assert await sql.missing_embeddings("fake-hash") == {}
+        assert list(await sql.missing_embeddings("another-model")) == [document_id]
+        passages = await sql.chunks(document_id)
+        await sql.save_chunks(document_id, passages)  # replaces the rows, so they have no vectors again
+        assert list(await sql.missing_embeddings("fake-hash")) == [document_id]
+        assert await backfill_embeddings(sql, embedder) == (1, len(passages))
+        assert await sql.missing_embeddings("fake-hash") == {}
         assert await sql.get(str(uuid.uuid4()), document_id) is None  # not someone else's
         assert [d.id for d in await sql.list_for(user)] == [document_id]
         assert await sql.delete(user, document_id)  # chunks go with it (ON DELETE CASCADE)

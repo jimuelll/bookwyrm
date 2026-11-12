@@ -29,6 +29,7 @@ from app.providers.fake import FakeProvider, echo_handler, verify_reply
 from app.quizzes import (
     GENERATOR_DOWN,
     NOTHING_PASSED,
+    AnswerFact,
     AttemptRecord,
     Graded,
     ProgressBoard,
@@ -135,6 +136,24 @@ class MemoryQuizzes:
 
     async def answers(self, attempt_id: UUID) -> dict[UUID, Graded]:
         return self.given.get(attempt_id, {})
+
+    async def finished_attempts(self, user_id: str, document_id: UUID) -> list[AttemptRecord]:
+        return [
+            a
+            for a in self.attempts.values()
+            if a.user_id == user_id
+            and a.finished_at is not None
+            and self.quizzes[a.quiz_id].document_id == document_id
+        ]
+
+    async def answer_facts(self, attempt_ids: list[UUID]) -> list[AnswerFact]:
+        facts = []
+        for attempt_id in attempt_ids:
+            questions = {q.id: q for q in self.items[self.attempts[attempt_id].quiz_id]}
+            for question_id, graded in self.given.get(attempt_id, {}).items():
+                q = questions[question_id]
+                facts.append(AnswerFact(attempt_id, q.topic, q.page, graded.is_correct))
+        return facts
 
 
 @pytest.fixture
@@ -548,6 +567,57 @@ def test_a_restart_marks_quizzes_being_written_as_failed(
     assert "interrupted" in (quizzes.quizzes[stuck.id].error or "")
 
 
+# --- stats for a PDF ---
+
+
+def stats(client: TestClient, book: str, user: str = ANA) -> Any:
+    return client.get(f"/documents/{book}/stats", headers=auth(token(sub=user)))
+
+
+def test_a_book_nobody_has_been_quizzed_on_has_empty_stats(client: TestClient, book: str) -> None:
+    body = stats(client, book).json()
+
+    assert (body["document_title"], body["quizzes_taken"], body["passing_rate"], body["history"]) == (
+        "Cell Biology ch3",
+        0,
+        None,
+        [],
+    )
+    assert body["weak"] == body["strong"] == body["learning"] == body["unrated"] == []
+
+
+def test_stats_count_the_first_attempt_at_a_quiz_and_not_the_retakes(client: TestClient, book: str) -> None:
+    quiz_id = ask(client, book).json()["id"]
+    first = start(client, quiz_id).json()
+    submit(client, first["id"], {})  # skipped everything: 0 of 3
+    retake = start(client, quiz_id).json()
+    submit(client, retake["id"], {q["id"]: "True" for q in retake["questions"]})  # 3 of 3, but practice
+
+    body = stats(client, book).json()
+
+    assert (body["quizzes_taken"], body["passing_rate"]) == (1, 0.0)
+    assert [(h["score"], h["total"], h["percent"]) for h in body["history"]] == [(0, 3, 0)]
+    topics = body["weak"] + body["learning"] + body["strong"] + body["unrated"]
+    assert sum(t["total"] for t in topics) == 3  # the retake's answers are not in there
+    assert all(t["right"] == 0 for t in topics)
+
+
+def test_an_unfinished_attempt_is_not_counted(client: TestClient, book: str) -> None:
+    quiz_id = ask(client, book).json()["id"]
+    start(client, quiz_id)  # started, never submitted
+
+    assert stats(client, book).json()["quizzes_taken"] == 0
+
+
+def test_someone_elses_stats_look_like_they_do_not_exist(client: TestClient, book: str) -> None:
+    assert stats(client, book, user=BEN).status_code == 404
+    assert stats(client, str(uuid.uuid4())).status_code == 404
+
+
+def test_stats_need_a_login(client: TestClient, book: str) -> None:
+    assert client.get(f"/documents/{book}/stats").status_code == 401
+
+
 # --- the real tables (runs where a test database exists, e.g. CI) ---
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "")
@@ -600,6 +670,18 @@ async def test_the_quiz_tables_store_a_quiz_an_attempt_and_its_answers(settings:
         assert finished is not None and finished.score == 3 and finished.finished_at is not None
         assert await sql.submit(attempt.id, graded) is None  # only the first submit counts
         assert set(await sql.answers(attempt.id)) == {q.id for q in questions}
+
+        # the stats queries: only this reader's finished attempts, with each answer's topic and page
+        unfinished = await sql.start_attempt(
+            user_id=user, quiz_id=quiz.id, question_order=order, option_order=options
+        )
+        assert [a.id for a in await sql.finished_attempts(user, document_id)] == [attempt.id]
+        assert unfinished.id not in {a.id for a in await sql.finished_attempts(user, document_id)}
+        assert await sql.finished_attempts(str(uuid.uuid4()), document_id) == []  # someone else's: none
+        facts = await sql.answer_facts([attempt.id])
+        assert {f.topic for f in facts} == {q.topic for q in questions} and all(f.is_correct for f in facts)
+        assert {f.page for f in facts} <= {1, 2} and len(facts) == 3
+        assert await sql.answer_facts([]) == []
 
         assert await docs.delete(user, document_id)  # the quiz, questions, attempt and answers cascade
         assert await sql.get(user, quiz.id) is None

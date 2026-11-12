@@ -3,6 +3,7 @@
 uv run bookwyrm generate notes.pdf --count 5
 uv run bookwyrm generate notes.pdf --types mcq,true_false --difficulty hard --pages 10-40
 uv run bookwyrm chunks notes.pdf          # inspect how the PDF was split
+uv run bookwyrm embed-missing             # give passages without a vector one (needs DATABASE_URL)
 """
 
 import argparse
@@ -69,6 +70,8 @@ def _parser() -> argparse.ArgumentParser:
 
     chunks = sub.add_parser("chunks", help="show how a PDF is split into passages")
     chunks.add_argument("pdf", type=Path)
+
+    sub.add_parser("embed-missing", help="embed passages in the database that have no current vector")
     return parser
 
 
@@ -131,6 +134,28 @@ def _chunks(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+async def _embed_missing(settings: Settings) -> int:
+    from app.db.session import make_engine, make_sessionmaker
+    from app.documents import SqlDocumentStore, backfill_embeddings
+    from app.providers.embeddings import build_embedder
+
+    if not settings.database_url:
+        print("Error: DATABASE_URL is not set.", file=sys.stderr)
+        return 2
+    engine = make_engine(settings.database_url)
+    try:
+        async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
+            embedder = build_embedder(settings, client)
+            if embedder is None:
+                print("Error: no embedding provider (set GEMINI_API_KEY).", file=sys.stderr)
+                return 2
+            books, passages = await backfill_embeddings(SqlDocumentStore(make_sessionmaker(engine)), embedder)
+    finally:
+        await engine.dispose()
+    print(f"Embedded {passages} passage(s) in {books} book(s) with {embedder.model}.")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     # Windows terminals default to a legacy code page; PDFs are full of curly quotes and dashes.
     if hasattr(sys.stdout, "reconfigure"):
@@ -145,6 +170,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "chunks":
             return _chunks(args, settings)
+        if args.command == "embed-missing":
+            return asyncio.run(_embed_missing(settings))
         return asyncio.run(_generate(args, settings))
     except (PdfError, GenerationError, ProviderError) as e:
         print(f"Error: {e}", file=sys.stderr)

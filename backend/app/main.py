@@ -69,6 +69,7 @@ from app.quizzes import (
 )
 from app.quotas import MB, QuotaExceeded, RateLimited, UploadRateLimiter, Usage, UserLocks, check_quota
 from app.retrieval import TopicSearch
+from app.stats import StatsOut, build_stats
 from app.storage import FileStore, LocalFileStore, StorageError, SupabaseFileStore
 
 log = logging.getLogger(__name__)
@@ -519,6 +520,17 @@ def create_app(
             hard_max=settings.max_quiz_questions,
         )
         return ScopeOut.of(scope, tidy)
+
+    @app.get("/documents/{document_id}/stats")
+    async def document_stats(document_id: UUID, user: User, docs: Documents, store: Quizzes) -> StatsOut:
+        """How the reader is doing on this PDF: weak and strong topics, passing rate, scores over time.
+        Built from their own first attempts only (app/stats.py)."""
+        document = await docs.get(user.id, document_id)
+        if document is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "That PDF isn't in your library.")
+        attempts = await store.finished_attempts(user.id, document_id)
+        facts = await store.answer_facts([a.id for a in attempts])
+        return build_stats(document_id, document.title, attempts, facts)
 
     @app.get("/quizzes")
     async def list_quizzes(user: User, docs: Documents, store: Quizzes) -> list[QuizOut]:

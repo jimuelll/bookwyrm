@@ -94,6 +94,16 @@ class AttemptRecord:
 
 
 @dataclass(frozen=True)
+class AnswerFact:
+    """One answered question, as the stats need it: what it was about, where it came from, was it right."""
+
+    attempt_id: UUID
+    topic: str
+    page: int
+    is_correct: bool
+
+
+@dataclass(frozen=True)
 class Graded:
     question_id: UUID
     response: str | None
@@ -218,6 +228,14 @@ class QuizStore(Protocol):
         ...
 
     async def answers(self, attempt_id: UUID) -> dict[UUID, Graded]: ...
+
+    async def finished_attempts(self, user_id: str, document_id: UUID) -> list[AttemptRecord]:
+        """Every submitted attempt this reader made at any quiz of this document (for the stats)."""
+        ...
+
+    async def answer_facts(self, attempt_ids: list[UUID]) -> list[AnswerFact]:
+        """The answers in those attempts, each with its question's topic and page."""
+        ...
 
 
 def _quiz(row: Quiz, question_count: int) -> QuizRecord:
@@ -416,6 +434,31 @@ class SqlQuizStore:
         async with self._sessions() as session:
             rows = await session.scalars(select(AnswerRow).where(AnswerRow.attempt_id == attempt_id))
             return {r.question_id: Graded(r.question_id, r.response, r.is_correct) for r in rows}
+
+    async def finished_attempts(self, user_id: str, document_id: UUID) -> list[AttemptRecord]:
+        async with self._sessions() as session:
+            rows = await session.scalars(
+                select(Attempt)
+                .join(Quiz, Quiz.id == Attempt.quiz_id)
+                .where(
+                    Attempt.user_id == UUID(user_id),
+                    Quiz.document_id == document_id,
+                    Attempt.finished_at.is_not(None),
+                )
+                .order_by(Attempt.finished_at)
+            )
+            return [_attempt(r) for r in rows]
+
+    async def answer_facts(self, attempt_ids: list[UUID]) -> list[AnswerFact]:
+        if not attempt_ids:
+            return []
+        async with self._sessions() as session:
+            rows = await session.execute(
+                select(AnswerRow.attempt_id, QuestionRow.topic, QuestionRow.page, AnswerRow.is_correct)
+                .join(QuestionRow, QuestionRow.id == AnswerRow.question_id)
+                .where(AnswerRow.attempt_id.in_(attempt_ids))
+            )
+            return [AnswerFact(a, topic, page, ok) for a, topic, page, ok in rows]
 
 
 # ---------- the generation job ----------
