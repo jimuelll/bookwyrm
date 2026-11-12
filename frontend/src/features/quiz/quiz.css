@@ -125,7 +125,18 @@
 .quiz-passage footer { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-display); font-style: italic; font-size: 17px; color: var(--accent); }
 .quiz-passage footer svg { width: 15px; height: 15px; flex: none; }
 
+/* "what to study": one row per topic that was missed, with the pages it came from */
+.quiz-review { margin-top: 32px; max-width: 62ch; }
+.quiz-review h2 { margin: 0 0 4px; font-family: var(--font-display); font-weight: 400; font-size: 26px; }
+.quiz-review > p { margin: 0; font-size: 17px; line-height: 1.5; color: var(--muted); }
+.quiz-review ul { list-style: none; margin: 14px 0 0; padding: 0; }
+.quiz-review li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 12px 0; border-top: 1px solid var(--rule); }
+.quiz-review li:last-child { border-bottom: 1px solid var(--rule); }
+.quiz-review-topic { font-size: 18px; overflow-wrap: anywhere; }
+.quiz-review-pages { margin-left: 6px; font-family: var(--font-display); font-style: italic; font-size: 16px; color: var(--accent); white-space: nowrap; }
+
 @media (max-width: 640px) {
+  .quiz-review li .btn { width: 100%; }
   .quiz-field { grid-template-columns: 1fr; }
   .quiz-choices, .quiz-hint, .quiz-topic { grid-column: 1; }
   .quiz-result-answers div { grid-template-columns: 1fr; gap: 0; }

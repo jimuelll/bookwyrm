@@ -6,11 +6,12 @@ import type { Quiz } from '../../app/quizzes'
 import { CheckIcon } from '../../components/icons'
 import { addedLabel, bindingFor } from './books'
 
-/** What each step of reading a PDF is called on the shelf, and how far along it is (of 3). */
+/** What each step of reading a PDF is called on the shelf, and how far along it is (of 4). */
 const STEPS: Partial<Record<DocumentStatus, { label: string; step: number }>> = {
   queued: { label: 'Waiting to be read', step: 0 },
   extracting: { label: 'Reading the pages', step: 1 },
   chunking: { label: 'Splitting into passages', step: 2 },
+  embedding: { label: 'Learning what each passage means', step: 3 },
 }
 
 const pages = (n: number | null) => (n === null ? null : `${n} ${n === 1 ? 'page' : 'pages'}`)
@@ -54,7 +55,7 @@ export function BookRow({ doc, duplicate = false, quiz, onRemove }: Props) {
         {duplicate && <p className="shelf-book-note" role="status">Already on your shelf</p>}
         {isReading(doc.status) && step && (
           <div className="shelf-book-reading">
-            <progress className="shelf-book-progress" max={3} value={step.step} aria-label={`Reading ${doc.title}`} />
+            <progress className="shelf-book-progress" max={4} value={step.step} aria-label={`Reading ${doc.title}`} />
             <p className="shelf-book-step" role="status">{step.label}…</p>
           </div>
         )}

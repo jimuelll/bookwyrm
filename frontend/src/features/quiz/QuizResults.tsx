@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { ApiError, useApi } from '../../app/api'
-import type { Attempt, AttemptQuestion } from '../../app/quizzes'
+import type { Attempt, AttemptQuestion, Quiz } from '../../app/quizzes'
 import { BookmarkIcon, CheckIcon, CrossIcon } from '../../components/icons'
+import { missedTopics } from './missedTopics'
 
 /** What the reader answered, in words: the option's text for multiple choice, else what they typed. */
 function shown(question: AttemptQuestion, response: string | null) {
   if (response === null) return null
   return question.options?.find((o) => o.id === response)?.text ?? response
 }
+
+const pagesLabel = (pages: number[]) => `${pages.length === 1 ? 'p.' : 'pp.'} ${pages.join(', ')}`
 
 /**
  * The marked attempt: the score, then every question with the reader's answer, the right one, why, and
@@ -18,7 +21,9 @@ export function QuizResults({ attempt }: { attempt: Attempt }) {
   const api = useApi()
   const navigate = useNavigate()
   const [starting, setStarting] = useState(false)
+  const [reviewing, setReviewing] = useState<string | null>(null) // the topic whose quiz is being started
   const [problem, setProblem] = useState<string | null>(null)
+  const missed = missedTopics(attempt.questions)
   const headingRef = useRef<HTMLHeadingElement>(null)
 
   // arriving from Submit: start at the top, on the score
@@ -36,6 +41,24 @@ export function QuizResults({ attempt }: { attempt: Attempt }) {
       navigate(`/attempts/${next.id}`)
     } catch (err) {
       setStarting(false)
+      setProblem(err instanceof ApiError ? err.message : 'Something went wrong. Try again.')
+    }
+  }
+
+  async function review(topic: string) {
+    setReviewing(topic)
+    setProblem(null)
+    try {
+      // A short quiz on one topic. No `count`: the server picks a number that suits how much the PDF says
+      // about it (so a topic with little material never fails for being asked too much of).
+      const body = { topic, difficulty: 'medium', types: ['mcq'] }
+      const quiz = await api<Quiz>(`/documents/${attempt.document_id}/quizzes`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      })
+      navigate(`/quizzes/${quiz.id}`)
+    } catch (err) {
+      setReviewing(null)
       setProblem(err instanceof ApiError ? err.message : 'Something went wrong. Try again.')
     }
   }
@@ -90,9 +113,34 @@ export function QuizResults({ attempt }: { attempt: Attempt }) {
         })}
       </ol>
 
+      {missed.length > 0 && (
+        <section className="quiz-review" aria-labelledby="quiz-review-title">
+          <h2 id="quiz-review-title">What to study</h2>
+          <p>A short quiz on just that part of the PDF, written from the pages that cover it.</p>
+          <ul>
+            {missed.map((m) => (
+              <li key={m.topic}>
+                <span className="quiz-review-topic">
+                  {m.topic} <span className="quiz-review-pages">{pagesLabel(m.pages)}</span>
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={() => review(m.topic)}
+                  disabled={starting || reviewing !== null}
+                  aria-label={`Quiz me on ${m.topic}`}
+                >
+                  {reviewing === m.topic ? 'Starting…' : 'Quiz me on this'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {problem && <p className="quiz-problem" role="alert">{problem}</p>}
       <div className="quiz-actions">
-        <button type="button" className="btn btn-primary btn-lg" onClick={again} disabled={starting}>
+        <button type="button" className="btn btn-primary btn-lg" onClick={again} disabled={starting || reviewing !== null}>
           {starting ? 'Starting…' : 'Take it again'}
         </button>
         <Link className="text-link" to={`/library/${attempt.document_id}/quiz`}>Write a new quiz</Link>

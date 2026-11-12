@@ -5,6 +5,7 @@ import App from '../../App'
 import type { Attempt } from '../../app/quizzes'
 import { book, profile, quiz, scope, stubApi } from '../../test/fakeApi'
 import { createFakeBackend } from '../auth/fakeBackend'
+import { missedTopics } from './missedTopics'
 
 function open(path: string) {
   window.history.pushState(null, '', path)
@@ -314,6 +315,59 @@ describe('taking a quiz', () => {
     expect(await screen.findByRole('heading', { level: 1, name: '1 of 2 correct' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Take it again' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Submit answers' })).not.toBeInTheDocument()
+  })
+})
+
+describe('studying what was missed', () => {
+  it('offers a short quiz on each missed topic, with its pages, and asks the server for exactly that topic', async () => {
+    const user = userEvent.setup()
+    let asked: unknown = null
+    stubApi({
+      '/profile': profile(),
+      '/attempts/att-1': () => Response.json(marked),
+      'POST /documents/doc-1/quizzes': (init) => {
+        asked = sent(init)
+        return Response.json(quiz({ id: 'quiz-review', topic: 'Osmosis', status: 'generating', question_count: 0 }), { status: 202 })
+      },
+      '/quizzes/quiz-review': () => Response.json(quiz({ id: 'quiz-review', topic: 'Osmosis' })),
+    })
+    open('/attempts/att-1')
+
+    const study = await screen.findByRole('region', { name: 'What to study' })
+    // only the topic that was missed is listed (the mitochondria question was right), with the page it came from
+    expect(within(study).getAllByRole('listitem')).toHaveLength(1)
+    expect(within(study).getByText('p. 31')).toBeInTheDocument()
+    await user.click(within(study).getByRole('button', { name: 'Quiz me on Osmosis' }))
+
+    // no count: the server sizes the quiz to how much the PDF says about the topic
+    expect(asked).toEqual({ topic: 'Osmosis', difficulty: 'medium', types: ['mcq'] })
+    expect(await screen.findByText(/Osmosis/)).toBeInTheDocument()
+  })
+
+  it('has nothing to study after a perfect score', async () => {
+    const perfect: Attempt = {
+      ...marked,
+      score: 2,
+      questions: marked.questions.map((q) => ({ ...q, result: q.result && { ...q.result, is_correct: true } })),
+    }
+    stubApi({ '/profile': profile(), '/attempts/att-1': () => Response.json(perfect) })
+    open('/attempts/att-1')
+
+    expect(await screen.findByRole('heading', { level: 1, name: '2 of 2 correct' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'What to study' })).not.toBeInTheDocument()
+  })
+
+  it('merges questions on the same topic and lists their pages in order', () => {
+    const wrong = (topic: string, page: number) => ({
+      ...open_attempt.questions[0],
+      topic,
+      result: { ...marked.questions[1].result!, page },
+    })
+
+    expect(missedTopics([wrong('ATP', 40), wrong('atp', 12), wrong('Osmosis', 31), wrong('ATP', 12)])).toEqual([
+      { topic: 'ATP', pages: [12, 40] },
+      { topic: 'Osmosis', pages: [31] },
+    ])
   })
 })
 

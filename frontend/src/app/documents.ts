@@ -1,7 +1,7 @@
 import { API_BASE, ApiError, errorMessage } from './api'
 
 /** The ingestion steps, as the API reports them (backend/app/documents.py). */
-export type DocumentStatus = 'queued' | 'extracting' | 'chunking' | 'ready' | 'failed'
+export type DocumentStatus = 'queued' | 'extracting' | 'chunking' | 'embedding' | 'ready' | 'failed'
 
 /** One uploaded PDF: a book on the reader's shelf. */
 export interface LibraryDocument {
@@ -17,7 +17,8 @@ export interface LibraryDocument {
 }
 
 /** Still being read: the Library polls until none are. */
-export const isReading = (status: DocumentStatus) => status === 'queued' || status === 'extracting' || status === 'chunking'
+export const isReading = (status: DocumentStatus) =>
+  status === 'queued' || status === 'extracting' || status === 'chunking' || status === 'embedding'
 
 // The server's limits (backend/app/config.py). Checked here too only so a wrong file is refused before
 // it's sent; the server checks again, because anything the browser checks can be skipped.
