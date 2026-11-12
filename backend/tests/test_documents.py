@@ -144,7 +144,14 @@ def store() -> MemoryDocuments:
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    return Settings(_env_file=None, storage_dir=str(tmp_path / "storage"), max_upload_mb=1, max_pages=5)
+    # pinned, not left to the environment: CI sets EMBEDDING_PROVIDER=fake for the whole job
+    return Settings(
+        _env_file=None,
+        embedding_provider="gemini",
+        storage_dir=str(tmp_path / "storage"),
+        max_upload_mb=1,
+        max_pages=5,
+    )
 
 
 @pytest.fixture

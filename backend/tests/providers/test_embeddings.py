@@ -1,5 +1,6 @@
 import json
 import math
+from typing import Any
 
 import httpx
 import pytest
@@ -111,9 +112,10 @@ def test_gemini_needs_a_key() -> None:
 
 def test_the_settings_pick_the_embedder() -> None:
     http = httpx.AsyncClient()
-    base = {"_env_file": None}
+    # pinned, not left to the environment: CI sets EMBEDDING_PROVIDER=fake for the whole job
+    base: dict[str, Any] = {"_env_file": None, "embedding_provider": "gemini"}
 
     assert build_embedder(Settings(**base, gemini_api_key=""), http) is None  # no key: keywords only
     assert isinstance(build_embedder(Settings(**base, gemini_api_key="k"), http), GeminiEmbedder)
-    fake = build_embedder(Settings(**base, embedding_provider="fake"), http)
+    fake = build_embedder(Settings(**{**base, "embedding_provider": "fake"}), http)
     assert isinstance(fake, FakeEmbedder) and fake.dim == 768
