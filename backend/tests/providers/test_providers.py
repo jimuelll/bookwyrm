@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from app.config import Settings
-from app.providers.base import ProviderError
+from app.providers.base import MAX_RETRY_WAIT, ProviderError, post_json
 from app.providers.factory import build_provider
 from app.providers.fake import FakeProvider
 from app.providers.fallback import FallbackProvider
@@ -41,6 +41,29 @@ async def test_retries_a_rate_limit_then_succeeds() -> None:
     async with client(httpx.MockTransport(lambda _: next(responses))) as c:
         text = await GeminiProvider("k", "m", c, base_delay=0).generate_json("sys", "hi")
     assert text == "{}"
+
+
+async def test_waits_as_long_as_a_rate_limit_asks_but_not_forever() -> None:
+    waits: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        waits.append(seconds)
+
+    responses = iter(
+        [
+            httpx.Response(429, headers={"retry-after": "7"}, text="tokens per minute"),
+            httpx.Response(429, headers={"retry-after": "9999"}, text="tokens per minute"),
+            httpx.Response(200, json={"ok": True}),
+        ]
+    )
+    async with client(httpx.MockTransport(lambda _: next(responses))) as c:
+        data = await post_json(
+            c, "http://x/", provider="t", headers={}, body={}, base_delay=0.1, sleep=fake_sleep
+        )
+
+    assert data == {"ok": True}
+    assert waits[0] == 7  # the server's number, not the 0.1s backoff
+    assert waits[1] == MAX_RETRY_WAIT  # an absurd request is capped
 
 
 async def test_does_not_retry_a_bad_key() -> None:

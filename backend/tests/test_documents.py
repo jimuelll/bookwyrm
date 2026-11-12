@@ -46,7 +46,7 @@ class MemoryDocuments:
 
     def __init__(self) -> None:
         self.rows: dict[UUID, DocumentRecord] = {}
-        self.chunks: dict[UUID, list[Chunk]] = {}
+        self.passages: dict[UUID, list[Chunk]] = {}
         self.history: dict[UUID, list[Status]] = {}
         self._tick = 0
 
@@ -101,13 +101,16 @@ class MemoryDocuments:
         return True
 
     async def save_chunks(self, document_id: UUID, chunks: list[Chunk]) -> None:
-        self.chunks[document_id] = chunks
+        self.passages[document_id] = chunks
+
+    async def chunks(self, document_id: UUID) -> list[Chunk]:
+        return self.passages.get(document_id, [])
 
     async def delete(self, user_id: str, document_id: UUID) -> bool:
         if await self.get(user_id, document_id) is None:
             return False
         del self.rows[document_id]
-        self.chunks.pop(document_id, None)
+        self.passages.pop(document_id, None)
         return True
 
     async def fail_unfinished(self, message: str) -> int:
@@ -160,8 +163,8 @@ def test_a_pdf_is_stored_read_and_cut_into_passages(
     )
     document_id = UUID(body["id"])
     assert store.history[document_id] == ["queued", "extracting", "chunking", "ready"]
-    assert store.chunks[document_id][0].page_start == 1
-    assert store.chunks[document_id][-1].page_end == 2
+    assert store.passages[document_id][0].page_start == 1
+    assert store.passages[document_id][-1].page_end == 2
     # kept under a name we chose, not the reader's
     assert LocalFileStore(settings.storage_path).path(ANA, document_id).is_file()
     assert not any((settings.storage_path / "tmp").iterdir())  # no temporary files left behind

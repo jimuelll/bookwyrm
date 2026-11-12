@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -23,6 +24,8 @@ TITLE_MAX = 200
 FILENAME_MAX = 255
 # the ingestion status machine (docs/ARCHITECTURE.md 4.1); `embedding` joins it when embeddings do
 DOCUMENT_STATUSES = ("queued", "extracting", "chunking", "ready", "failed")
+QUIZ_STATUSES = ("generating", "ready", "failed")
+TOPIC_MAX = 80  # the same limit the generation schema puts on a topic (app/generation/schemas.py)
 
 
 class Base(DeclarativeBase):
@@ -93,3 +96,91 @@ class ChunkRow(Base):
     token_count: Mapped[int]
     # [[offset in text, page number], ...]: where each page's text starts, so a quote maps to one page
     page_marks: Mapped[list[Any]] = mapped_column(JSONB)
+
+
+class Quiz(Base):
+    """One generated quiz: a fixed set of questions written from one document."""
+
+    __tablename__ = "quizzes"
+    __table_args__ = (
+        CheckConstraint(f"status in {QUIZ_STATUSES}", name="quizzes_status_valid"),
+        Index("quizzes_user_created_idx", "user_id", "created_at"),
+        Index("quizzes_document_idx", "document_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    user_id: Mapped[UUID]  # who asked for it (the Supabase Auth user id)
+    document_id: Mapped[UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
+    # what was asked for: {"count": 5, "difficulty": "medium", "types": [...], "pages": [40, 60] | null}
+    config: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(16), default="generating")
+    error: Mapped[str | None] = mapped_column(Text)  # why it failed, written for the reader
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class QuestionRow(Base):
+    """One question of a quiz, exactly as it passed the checks. Never edited afterwards."""
+
+    __tablename__ = "questions"
+    __table_args__ = (
+        UniqueConstraint("quiz_id", "ordinal", name="questions_quiz_ordinal_key"),
+        Index("questions_source_chunk_idx", "source_chunk_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    quiz_id: Mapped[UUID] = mapped_column(ForeignKey("quizzes.id", ondelete="CASCADE"))
+    ordinal: Mapped[int]  # the order they were written in; each attempt shows its own shuffle
+    type: Mapped[str] = mapped_column(String(16))
+    prompt: Mapped[str] = mapped_column(Text)
+    # multiple choice only: [{"id": "a", "text": "..."}, ...]. Answers are matched by id, not position.
+    options: Mapped[list[Any] | None] = mapped_column(JSONB)
+    answer: Mapped[str] = mapped_column(Text)  # the correct answer's text
+    explanation: Mapped[str] = mapped_column(Text)
+    topic: Mapped[str] = mapped_column(String(TOPIC_MAX))
+    difficulty: Mapped[str] = mapped_column(String(8))
+    # the passage it was written from, kept for "show me the source" (NULL if that passage is replaced)
+    source_chunk_id: Mapped[UUID | None] = mapped_column(ForeignKey("chunks.id", ondelete="SET NULL"))
+    page: Mapped[int]  # the page the evidence is on
+    evidence: Mapped[str] = mapped_column(Text)  # the sentence(s) quoted from that page
+    verifier_notes: Mapped[str] = mapped_column(Text, server_default="")
+
+
+class Attempt(Base):
+    """One sitting of a quiz by one reader, with the order the questions and options were shown in."""
+
+    __tablename__ = "attempts"
+    __table_args__ = (
+        CheckConstraint("(score is null) = (finished_at is null)", name="attempts_score_when_finished"),
+        CheckConstraint("score is null or (score >= 0 and score <= total)", name="attempts_score_range"),
+        Index("attempts_quiz_user_idx", "quiz_id", "user_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    quiz_id: Mapped[UUID] = mapped_column(ForeignKey("quizzes.id", ondelete="CASCADE"))
+    user_id: Mapped[UUID]
+    question_order: Mapped[list[Any]] = mapped_column(JSONB)  # question ids, as shown
+    option_order: Mapped[dict[str, Any]] = mapped_column(JSONB)  # {question id: [option ids, as shown]}
+    total: Mapped[int]  # how many questions; fixed when the attempt starts
+    score: Mapped[int | None]  # how many were right; NULL until it is submitted
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AnswerRow(Base):
+    """What the reader answered to one question in one attempt, and whether it was right."""
+
+    __tablename__ = "answers"
+    __table_args__ = (
+        UniqueConstraint("attempt_id", "question_id", name="answers_attempt_question_key"),
+        Index("answers_question_idx", "question_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    attempt_id: Mapped[UUID] = mapped_column(ForeignKey("attempts.id", ondelete="CASCADE"))
+    question_id: Mapped[UUID] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"))
+    response: Mapped[str | None] = mapped_column(Text)  # an option id, or what they typed; NULL if skipped
+    is_correct: Mapped[bool] = mapped_column(Boolean)
+    answered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -18,12 +18,14 @@ class Settings(BaseSettings):
     )
 
     # Primary LLM. The other real provider is used as a fallback when its key is set.
-    llm_provider: Literal["gemini", "groq", "fake"] = "gemini"
+    llm_provider: Literal["gemini", "groq", "fake"] = "groq"
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.8-flash"
     groq_api_key: str = ""
-    groq_model: str = "llama-3.3-70b-versatile"
-    llm_timeout_seconds: float = 60.0
+    groq_model: str = "openai/gpt-oss-120b"
+    # Writing a batch of questions is a long generation (a reasoning model can think for a while
+    # before the first token), so 60s was cutting off healthy calls. This is the read timeout.
+    llm_timeout_seconds: float = 180.0
 
     # Ingestion limits (docs/ARCHITECTURE.md §4.1)
     max_pages: int = 500
@@ -39,6 +41,11 @@ class Settings(BaseSettings):
     max_storage_mb_per_user: int = 500
     upload_rate_count: int = 10  # at most this many upload attempts...
     upload_rate_window_seconds: int = 600  # ...in any window this long
+
+    # Quiz generation: every quiz costs LLM calls, so each reader gets a ceiling on size and pace
+    max_quiz_questions: int = 20
+    quiz_rate_count: int = 10  # at most this many quizzes asked for...
+    quiz_rate_window_seconds: int = 600  # ...in any window this long
 
     # PDF parsing runs in a child process (app/ingestion/sandbox.py)
     pdf_inspect_timeout_seconds: float = 20.0  # the quick checks, while the upload request waits

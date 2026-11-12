@@ -77,11 +77,17 @@ class UploadRateLimiter:
     """
 
     def __init__(
-        self, max_uploads: int, window_seconds: int, clock: Callable[[], float] = time.monotonic
+        self,
+        max_uploads: int,
+        window_seconds: int,
+        clock: Callable[[], float] = time.monotonic,
+        *,
+        did: str = "uploaded {count} PDFs",
     ) -> None:
         self.max_uploads = max_uploads
         self.window = window_seconds
         self._clock = clock
+        self._did = did  # the same limiter also paces quiz generation: "asked for {count} quizzes"
         self._recent: dict[str, deque[float]] = {}
 
     def hit(self, user_id: str) -> None:
@@ -93,7 +99,7 @@ class UploadRateLimiter:
         if len(recent) >= self.max_uploads:
             wait = max(1, math.ceil(recent[0] + self.window - now))
             raise RateLimited(
-                f"You've uploaded {self.max_uploads} PDFs in the last {_wait_phrase(self.window)}. "
+                f"You've {self._did.format(count=self.max_uploads)} in the last {_wait_phrase(self.window)}. "
                 f"Try again in {_wait_phrase(wait)}.",
                 retry_after_seconds=wait,
             )

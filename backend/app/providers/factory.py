@@ -11,7 +11,7 @@ from app.providers.groq import GroqProvider
 
 
 def build_provider(settings: Settings, client: httpx.AsyncClient) -> LLMProvider:
-    """Gemini then Groq by default (or the reverse with LLM_PROVIDER=groq). Needs at least one key."""
+    """Groq then Gemini by default (or the reverse with LLM_PROVIDER=gemini). Needs at least one key."""
     if settings.llm_provider == "fake":
         return FakeProvider()
 

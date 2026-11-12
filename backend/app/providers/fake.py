@@ -34,16 +34,31 @@ class FakeProvider:
         return self._handler(system, prompt)
 
 
+_ITEM = re.compile(r'<item id="(\d+)">\n(.*?)\n</item>', re.DOTALL)
+
+
+def verify_reply(prompt: str, judge: Callable[[str], dict[str, Any]] | None = None) -> str:
+    """A reply to a verification prompt: one verdict per item, all passing unless `judge` says otherwise.
+
+    `judge` gets the text of one item (its question and excerpt) and returns the verdict fields to
+    change, e.g. {"ambiguous": True}.
+    """
+    verdicts = []
+    for number, block in _ITEM.findall(prompt):
+        verdict: dict[str, Any] = {
+            "id": int(number),
+            "answerable_from_source": True,
+            "single_correct_answer": True,
+            "ambiguous": False,
+            "reason": "fake",
+        }
+        verdicts.append(verdict | (judge(block) if judge else {}))
+    return json.dumps({"verdicts": verdicts})
+
+
 def echo_handler(system: str, prompt: str) -> str:
     if system == VERIFY_SYSTEM:
-        return json.dumps(
-            {
-                "answerable_from_source": True,
-                "single_correct_answer": True,
-                "ambiguous": False,
-                "reason": "fake",
-            }
-        )
+        return verify_reply(prompt)
     count_match = _COUNT.search(prompt)
     type_match = _FIRST_TYPE.search(prompt)
     count = int(count_match.group(1)) if count_match else 1

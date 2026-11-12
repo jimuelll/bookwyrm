@@ -146,12 +146,22 @@ class DocumentStore(Protocol):
         ...
 
     async def save_chunks(self, document_id: UUID, chunks: list[Chunk]) -> None: ...
+
+    async def chunks(self, document_id: UUID) -> list[Chunk]:
+        """The document's passages in reading order, with the ids the chunker gave them ("c1", "c2", ...)."""
+        ...
+
     async def delete(self, user_id: str, document_id: UUID) -> bool: ...
     async def fail_unfinished(self, message: str) -> int: ...
 
 
 class DuplicateDocument(Exception):
     pass
+
+
+def chunk_label(ordinal: int) -> str:
+    """The id a stored passage goes by in prompts: its place in reading order, as the chunker numbers them."""
+    return f"c{ordinal}"
 
 
 def _record(row: Document) -> DocumentRecord:
@@ -265,6 +275,25 @@ class SqlDocumentStore:
                 )
                 for i, c in enumerate(chunks, start=1)
             )
+
+    async def chunks(self, document_id: UUID) -> list[Chunk]:
+        async with self._sessions() as session:
+            rows = await session.scalars(
+                select(ChunkRow).where(ChunkRow.document_id == document_id).order_by(ChunkRow.ordinal)
+            )
+            return [
+                Chunk(
+                    # "c3", not the row's UUID: the model has to copy this id back, and it copies a short
+                    # one far more reliably (and for fewer tokens) than 36 random characters
+                    id=chunk_label(r.ordinal),
+                    text=r.text,
+                    page_start=r.page_start,
+                    page_end=r.page_end,
+                    token_count=r.token_count,
+                    page_marks=tuple((int(offset), int(page)) for offset, page in r.page_marks),
+                )
+                for r in rows
+            ]
 
     async def delete(self, user_id: str, document_id: UUID) -> bool:
         async with self._sessions() as session, session.begin():

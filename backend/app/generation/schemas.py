@@ -57,6 +57,16 @@ class Verdict(BaseModel):
         return self.answerable_from_source and self.single_correct_answer and not self.ambiguous
 
 
+class NumberedVerdict(Verdict):
+    """A verdict tagged with the number of the question it is about (the verifier checks several at once)."""
+
+    id: int
+
+
+class VerdictBatch(BaseModel):
+    verdicts: list[NumberedVerdict]
+
+
 class Question(GeneratedQuestion):
     """A question that passed every check, with the exact page its evidence is on."""
 

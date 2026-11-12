@@ -61,7 +61,7 @@ This document describes how the system is built and why. The PRD describes what 
 | Backend | Python 3.12, FastAPI, Pydantic v2 | Strongest AI/PDF ecosystem; typed schemas double as validation |
 | Database | Supabase Postgres + pgvector | One store for relational data and vectors; supports hybrid search; managed, with a free tier |
 | PDF parsing | PyMuPDF (Docling/Unstructured if layout or tables need it) | Fast, page-accurate extraction |
-| LLM / embeddings | Gemini (primary) and Groq (fallback) behind a provider interface, called over REST with httpx | Free tiers; swappable for comparison; no vendor SDKs to keep in step |
+| LLM / embeddings | Groq (primary) and Gemini (fallback) behind a provider interface, called over REST with httpx | Free tiers; swappable for comparison; no vendor SDKs to keep in step |
 | Structured output | Instructor / provider-native structured output + Pydantic | Fewer hand-rolled retries |
 | Jobs | FastAPI background tasks → Postgres-backed queue → ARQ/Celery + Redis only if needed | Start simple, upgrade on evidence |
 | Migrations | Alembic (`backend/migrations/`), run with `uv run alembic upgrade head` | Standard with SQLAlchemy; the same files build every database (Supabase, CI) |
@@ -200,21 +200,25 @@ chunks(id, document_id REFERENCES documents ON DELETE CASCADE, ordinal, page_sta
        text, token_count, page_marks jsonb)   -- built (0002); page_marks = where each page starts in text
       -- planned: heading_path, embedding vector(N), embedding_model, tsv tsvector
 
-quizzes(id, user_id, document_id, config jsonb, status,
-        mode ('review' | 'quiz'), kind ('full' | 'topic'),
-        topic NULL, source_quiz_id NULL REFERENCES quizzes ON DELETE SET NULL,
-        share_token UNIQUE, expires_at,
-        created_at)   -- CHECK (expires_at <= created_at + interval '7 days')
+quizzes(id, user_id, document_id REFERENCES documents ON DELETE CASCADE, config jsonb,
+        status CHECK in ('generating','ready','failed'), error, created_at, updated_at)   -- built (0005)
+      -- planned: mode ('review' | 'quiz'), kind ('full' | 'topic'), topic NULL,
+      --   source_quiz_id NULL REFERENCES quizzes ON DELETE SET NULL, share_token UNIQUE,
+      --   expires_at with CHECK (expires_at <= created_at + interval '7 days')
 
-questions(id, quiz_id, type, prompt, options jsonb, answer, explanation,
-          topic, difficulty, source_chunk_id, evidence,
-          verified bool, verifier_notes)
+questions(id, quiz_id REFERENCES quizzes ON DELETE CASCADE, ordinal, type, prompt,
+          options jsonb,   -- multiple choice only: [{"id": "a", "text": ...}, ...]
+          answer, explanation, topic, difficulty,
+          source_chunk_id REFERENCES chunks ON DELETE SET NULL, page, evidence,
+          verifier_notes)   -- built (0005); only questions that passed every check are stored
 
-attempts(id, quiz_id, user_id, score, question_order jsonb, option_order jsonb,
-         started_at, finished_at)   -- orders shuffled per attempt
+attempts(id, quiz_id REFERENCES quizzes ON DELETE CASCADE, user_id, question_order jsonb,
+         option_order jsonb, total, score NULL, started_at, finished_at NULL)
+      -- built (0005); orders shuffled per attempt; CHECK: score is set exactly when finished_at is
 
-answers(id, attempt_id, question_id, response, is_correct, grade,
-        feedback, answered_at)
+answers(id, attempt_id REFERENCES attempts ON DELETE CASCADE, question_id, response, is_correct,
+        answered_at)   -- built (0005); unique (attempt_id, question_id)
+      -- planned with short-answer grading: grade, feedback
 
 
 document_stats(id, user_id, document_id NULL REFERENCES documents ON DELETE SET NULL,
@@ -252,13 +256,16 @@ jobs(id, document_id, type, status, step, attempts, last_error, updated_at)
 | POST | `/documents` | Upload a PDF (multipart, field `file`). `202` stored and queued for reading; `200` this reader already has this exact file (that document is returned); `413` too large, or no room in the reader's quota; `422` not a usable PDF, with the reason; `429` too many uploads (with `Retry-After`) |
 | GET | `/documents`, `/documents/{id}` | The reader's own documents, newest first; one document's status (`404` for anyone else's) |
 | DELETE | `/documents/{id}` | Delete document, chunks and file (`204`); later also its quizzes, with its stats moving to History |
-| POST | `/documents/{id}/quizzes` | Generate quiz from config (includes `mode` and `lifetime_hours` ≤ 168) |
+| GET | `/documents/{id}/quiz-scope?topic=` | Before asking for a quiz: how much of the document is in scope (all of it, or the passages about `topic`) and how many questions suit it: `{topic, passages, page_first, page_last, suggested_count, max_count}`. `passages: 0` means the document never mentions the topic. No model call (`app/generation/scope.py`): topics are matched by keyword with BM25-style weighting until embeddings exist; counts come from the tokens in scope (about one suggested question per 300, at most one per 40, capped at 20) |
+| POST | `/documents/{id}/quizzes` | Ask for a quiz: `{count?, difficulty, types, pages?, topic?}` (types limited to the ones marked without a model: `mcq`, `true_false`, `fill_blank`; `count` left out means the suggested number; `topic` narrows both the passages used and what the questions ask). `202` being written (poll `GET /quizzes/{id}`); `409` the PDF isn't ready, or this reader already has a quiz being written; `422` nothing in scope, or more questions than the material in scope can carry; `429` too many (with `Retry-After`). Later also `mode` and `lifetime_hours` ≤ 168 |
+| GET | `/quizzes` | The reader's own quizzes, newest first |
 | GET | `/s/{share_token}` | Resolve a share link to its quiz (auth required; `410` if expired) |
 | GET | `/s/{share_token}/document` | Read-only PDF for review-mode shares (`403` for quiz mode, `410` if expired) |
 | GET | `/quizzes/{id}/leaderboard` | Per-quiz leaderboard (quiz mode only) |
-| GET | `/quizzes/{id}` | Fetch quiz with questions (no answers until submitted) |
-| POST | `/quizzes/{id}/attempts` | Start attempt |
-| POST | `/attempts/{id}/submit` | Submit answers, grade, return results |
+| GET | `/quizzes/{id}` | A quiz's status (`generating`, `ready`, `failed` with a reason) and size. While generating it also carries `progress` (`{stage: writing or checking, fraction, round, wanted, kept, candidates, checked}`), reported by the pipeline and kept in the API process's memory (`ProgressBoard`), so it assumes one process like the rate limiter; `fraction` never goes down and never reaches 1. Questions are only handed out through an attempt |
+| POST | `/quizzes/{id}/attempts` | Start an attempt (`201`): the questions in an order shuffled for it, with no answers, evidence or pages |
+| GET | `/attempts/{id}` | The attempt as it stands: questions while open, marked results once submitted |
+| POST | `/attempts/{id}/submit` | `{answers: {question_id: option id or text}}`; marks them on the server and returns each with the right answer, explanation, page and evidence. A question left out counts as wrong; `409` if already submitted |
 | GET | `/documents/{id}/stats` | A PDF's weak/strong topics, passing confidence and score history |
 | GET | `/history` | Stats of deleted PDFs (title + stats only) |
 | DELETE | `/history/{stats_id}` | Remove a history entry |
@@ -414,7 +421,7 @@ bookwyrm/
 | Quiz lifetime | Max 7 days, then hard delete | Users need longer-lived quizzes or history |
 | OCR | Out of scope for v1 | Users upload scanned documents |
 | Embedding model | Hosted default, local option | Cost, privacy or non-English quality demands change |
-| LLM provider | Gemini primary; Groq used for the rest of a run once Gemini fails | The evaluation shows Groq is as accurate, or Gemini's free tier is too limiting |
+| LLM provider | Groq primary; Gemini used for the rest of a run once Groq fails | The evaluation shows Gemini is as accurate, or Groq's free tier is too limiting |
 | Structured output (M1) | JSON mode + Pydantic validation + re-ask with the error, not provider-native schemas | Malformed-reply rate is high enough in the evaluation to justify native schemas |
 | Non-English (e.g. Filipino) | Not guaranteed in v1 | A multilingual embedding model is tested in the evaluation |
 

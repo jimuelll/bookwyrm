@@ -8,6 +8,9 @@ import { AuthProvider } from './features/auth/AuthProvider'
 import { LandingPage } from './features/landing/LandingPage'
 import { ResetPasswordPage } from './features/auth/ResetPasswordPage'
 import { LibraryPage } from './features/library/LibraryPage'
+import { AttemptPage } from './features/quiz/AttemptPage'
+import { QuizPage } from './features/quiz/QuizPage'
+import { QuizSetupPage } from './features/quiz/QuizSetupPage'
 import { SettingsPage } from './features/settings/SettingsPage'
 
 /** `authBackend` defaults to Supabase; tests pass an in-memory fake. */
@@ -24,6 +27,31 @@ export default function App({ authBackend }: { authBackend?: AuthBackend }) {
               element={
                 <RequireLogin title="Log in to see your library">
                   <LibraryPage />
+                </RequireLogin>
+              }
+            />
+            {/* the quiz loop: ask for one from a book, wait for it and begin, answer it and see the marks */}
+            <Route
+              path="library/:documentId/quiz"
+              element={
+                <RequireLogin title="Log in to write a quiz">
+                  <QuizSetupPage />
+                </RequireLogin>
+              }
+            />
+            <Route
+              path="quizzes/:quizId"
+              element={
+                <RequireLogin title="Log in to take this quiz">
+                  <QuizPage />
+                </RequireLogin>
+              }
+            />
+            <Route
+              path="attempts/:attemptId"
+              element={
+                <RequireLogin title="Log in to take this quiz">
+                  <AttemptPage />
                 </RequireLogin>
               }
             />

@@ -249,7 +249,7 @@ Publish results in the README.
 ## 14. Open Questions
 
 - Final product name?
-- ~~Which LLM provider is the default (Gemini vs Groq)?~~ Decided: Gemini primary, Groq as automatic fallback; the evaluation compares them.
+- ~~Which LLM provider is the default (Gemini vs Groq)?~~ Decided: Groq primary, Gemini as automatic fallback; the evaluation compares them.
 - Add a reranker in v1, or only after measuring baseline retrieval quality?
 - Local embeddings or hosted?
 - Hosted or self-hosted deployment?

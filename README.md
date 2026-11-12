@@ -26,7 +26,7 @@ An account (email or Google) is required for all of it.
 
 ## Status
 
-Early development. The frontend (landing, About, login modal, Library placeholder) is in `frontend/`. The backend's first milestone (M1) is in `backend/`: a command-line tool that turns a PDF into verified, page-cited questions. The web API, database and embeddings come next (M2).
+Early development, with the core loop working end to end: upload a PDF, have a quiz written from it, take the quiz, and see each answer marked with the page it came from. The frontend is in `frontend/`, the API and the generation pipeline in `backend/` (which also keeps the M1 command-line tool). Embeddings and topic-targeted retrieval (M2), then sharing and stats, come next.
 
 ## Run it locally
 
@@ -77,7 +77,7 @@ uv run bookwyrm generate notes.pdf --types mcq,true_false --difficulty hard --pa
 uv run bookwyrm chunks notes.pdf   # see how the PDF was split into passages
 ```
 
-Gemini is the primary model and Groq the fallback (used when Gemini fails, if `GROQ_API_KEY` is set). Set `LLM_PROVIDER=fake` to try the whole pipeline with no key: it writes simple questions straight from the text.
+Groq is the primary model and Gemini the fallback (used when Groq fails, if `GEMINI_API_KEY` is set). Set `LLM_PROVIDER=fake` to try the whole pipeline with no key: it writes simple questions straight from the text.
 
 Checks (the same ones CI runs on every push and pull request):
 

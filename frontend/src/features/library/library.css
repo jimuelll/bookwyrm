@@ -56,6 +56,9 @@
 .shelf-book-title { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 22px; line-height: 1.2; color: var(--ink); overflow-wrap: anywhere; }
 .shelf-book-meta { margin: 0; font-size: 16px; color: var(--muted); }
 .shelf-book-note { margin: 2px 0 0; font-family: var(--font-display); font-style: italic; font-size: 16px; color: var(--accent); }
+/* a ready book's actions: italic text links, so the bar's Upload stays the one primary button */
+.shelf-book-links { margin: 0; display: flex; flex-wrap: wrap; gap: 0 22px; }
+.shelf-book-links .text-link { font-size: 17px; }
 .shelf-book-error { margin: 2px 0 0; font-size: 16px; line-height: 1.4; color: var(--incorrect); }
 /* while it's being read: a thin rule filling in three steps, the step named beneath (bar styles: upload.css) */
 .shelf-book-reading { display: grid; gap: 6px; max-width: 320px; margin-top: 6px; }

@@ -1,4 +1,6 @@
+import type { Quiz } from '../../app/quizzes'
 import { usePageTitle, useShell, useStartUpload } from '../../app/shell'
+import { useResource } from '../../app/useResource'
 import { useDisplayName } from '../../app/useDisplayName'
 import { useUploads } from '../../app/upload/uploadContext'
 import { UploadIcon } from '../../components/icons'
@@ -15,8 +17,9 @@ import './library.css'
  *   main column = Your books: one row per PDF (cover, title, pages, and its status while it's being read),
  *                 then "Add a PDF"; for a new reader, one dashed area with the Upload button (the one action)
  *   side panel  = Plate I, the hand-coloured engraving of the wyrm at the inkwell, then "How it works"
- * TODO(library): once quizzes exist, a "Continue where you left off" bar above Your books, quizzes and
- * confidence on each row, and stats in the panel instead of the steps; see docs/DESIGN.md.
+ * A ready book's row links to its latest quiz and to writing a new one (features/quiz).
+ * TODO(library): once stats exist, a "Continue where you left off" bar above Your books, confidence on
+ * each row, and stats in the panel instead of the steps; see docs/DESIGN.md.
  */
 export function LibraryPage() {
   usePageTitle('Library')
@@ -25,6 +28,12 @@ export function LibraryPage() {
   const startUpload = useStartUpload()
   const { last } = useUploads()
   const { docs, error, retry, remove } = useDocuments()
+  // If the quizzes can't be fetched the shelf still works: rows just offer "Write a quiz".
+  // (Checked to be a list, so an unexpected reply can't take the whole page down with it.)
+  const { data } = useResource<Quiz[]>('/quizzes', {
+    pollWhile: (list) => Array.isArray(list) && list.some((q) => q.status === 'generating'),
+  })
+  const quizzes = Array.isArray(data) ? data : []
 
   const count = docs?.length ?? 0
   const lede =
@@ -77,7 +86,14 @@ export function LibraryPage() {
             ) : (
               <ul className="shelf-books">
                 {docs.map((doc) => (
-                  <BookRow key={doc.id} doc={doc} duplicate={last?.duplicate === true && last.id === doc.id} onRemove={remove} />
+                  <BookRow
+                    key={doc.id}
+                    doc={doc}
+                    duplicate={last?.duplicate === true && last.id === doc.id}
+                    // newest first, so the first match is this book's latest quiz that can be opened
+                    quiz={quizzes.find((q) => q.document_id === doc.id && q.status !== 'failed')}
+                    onRemove={remove}
+                  />
                 ))}
                 <li className="shelf-book shelf-book-add">
                   <button type="button" onClick={() => startUpload()}>

@@ -27,8 +27,14 @@ class GroqProvider:
             "model": self.model,
             "temperature": temperature,
             "response_format": {"type": "json_object"},
+            # gpt-oss is a reasoning model: its thinking counts against the completion budget. Left at
+            # the defaults it can spend all of it thinking and return nothing, which Groq reports as
+            # json_validate_failed with an empty failed_generation. Think less, and leave room.
+            "max_completion_tokens": 8192,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
         }
+        if "gpt-oss" in self.model:  # other models reject the parameter
+            body["reasoning_effort"] = "low"
         data = await post_json(
             self._client,
             f"{BASE_URL}/chat/completions",
