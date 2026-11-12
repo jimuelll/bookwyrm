@@ -188,8 +188,9 @@
   .book::after, .running, .folio, .caption { display: none; }
 
   /* stacked: copy page first, then the plate window with the sample question laid over its foot */
-  .page-l { border-radius: 3px 3px 0 0; padding: 24px 20px 26px; }
-  .page-r { --win: clamp(190px, 50vw, 300px); min-height: 0; padding: 0 12px 14px; }
+  .page-l { border-radius: 3px 3px 0 0; padding: clamp(24px, 5vw, 44px) clamp(20px, 5vw, 48px) clamp(26px, 4vw, 36px); align-items: center; }
+  /* the window keeps a picture-like ratio (about 16:9) instead of a thin strip, but never outgrows the screen */
+  .page-r { --win: min(clamp(200px, 56vw, 500px), 62svh); min-height: 0; padding: 0 12px 14px; }
   .page-r-paper { inset: 0 0 auto; height: calc(var(--win) + 24px); padding: 12px; border-radius: 0; }
   .page-r::before { /* plain paper below the window */
     content: ''; position: absolute; left: 0; right: 0; bottom: 0; top: calc(var(--win) + 24px);
@@ -200,9 +201,12 @@
   .plate-card:not(.is-open) { margin-top: calc(var(--win) + 22px); } /* the tab sits on the paper below the window */
   .pause { top: 20px; right: 20px; bottom: auto; min-height: 44px; padding: 0 14px; background: var(--page); border: 1px solid var(--rule); border-radius: 2px; }
 
-  .copy { gap: 18px; }
-  .actions .btn-lg { flex: 1 1 100%; }
+  .copy { gap: 18px; width: 100%; max-width: 36rem; }
+  .copy h1 { max-width: none; }
   .how ol { grid-template-columns: 1fr; max-width: 30rem; width: 100%; margin-inline: auto; }
+}
+@media (max-width: 560px) {
+  .actions .btn-lg { flex: 1 1 100%; }
 }
 @media (max-width: 400px) {
   .sample { padding-inline: 14px; }
