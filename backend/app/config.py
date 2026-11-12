@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.ingestion.sandbox import Limits
@@ -33,9 +34,12 @@ class Settings(BaseSettings):
     # How the topic search keeps a passage: it must be one of the closest `semantic_top_k` AND at least
     # this similar (cosine, 1 = same direction). A search by distance always returns *something*, even
     # for a topic the PDF never mentions; the floor is what lets us say "nothing here about that".
-    # 0.5 is a starting guess for gemini-embedding-001: tune it against real PDFs (docs/ARCHITECTURE.md 10).
+    # Measured with gemini-embedding-001 (768 dims) on one 3-passage biology book: topics that are in the book
+    # scored 0.62-0.72 against their best passage; topics that are not ("French Revolution", "stock market",
+    # ...) never passed 0.54. 0.58 sits in that gap. It is one small sample, so re-check it on real,
+    # longer PDFs (and again whenever the embedding model changes: every model has its own scale).
     semantic_top_k: int = 12
-    semantic_min_similarity: float = 0.5
+    semantic_min_similarity: float = 0.58
     # Writing a batch of questions is a long generation (a reasoning model can think for a while
     # before the first token), so 60s was cutting off healthy calls. This is the read timeout.
     llm_timeout_seconds: float = 180.0
@@ -88,6 +92,17 @@ class Settings(BaseSettings):
 
     # API
     cors_origins: str = "http://localhost:5173"  # comma-separated browser origins allowed to call the API
+
+    @field_validator("embedding_model", mode="before")
+    @classmethod
+    def _blank_means_default(cls, value: object) -> object:
+        """`EMBEDDING_MODEL=` (a blank line, as older .env.example files had) means "use the default".
+
+        An environment variable that is set but empty still *overrides* a default, so without this the
+        model name would be "" and every embedding call would fail with a 404."""
+        if isinstance(value, str) and not value.strip():
+            return cls.model_fields["embedding_model"].default
+        return value
 
     @property
     def storage_path(self) -> Path:

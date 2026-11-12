@@ -119,3 +119,14 @@ def test_the_settings_pick_the_embedder() -> None:
     assert isinstance(build_embedder(Settings(**base, gemini_api_key="k"), http), GeminiEmbedder)
     fake = build_embedder(Settings(**{**base, "embedding_provider": "fake"}), http)
     assert isinstance(fake, FakeEmbedder) and fake.dim == 768
+
+
+def test_a_blank_model_in_the_env_file_means_the_default_not_an_empty_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # older .env.example files had a bare `EMBEDDING_MODEL=`, and a set-but-empty variable overrides defaults
+    monkeypatch.setenv("EMBEDDING_MODEL", "")
+
+    assert Settings(_env_file=None).embedding_model == "gemini-embedding-001"
+    assert Settings(_env_file=None, embedding_model="   ").embedding_model == "gemini-embedding-001"
+    assert Settings(_env_file=None, embedding_model="other-model").embedding_model == "other-model"
