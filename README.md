@@ -24,6 +24,14 @@ Bookwyrm keeps every question grounded in your document and shows its source, so
 
 An account (email or Google) is required for all of it.
 
+## Under the hood
+
+- **Semantic search:** passages are embedded and stored in Postgres with pgvector, so "quiz me on this topic" finds the right pages by meaning.
+- **Safe uploads:** PDFs go to a private bucket, are parsed in a sandboxed subprocess, and count against a per-reader storage quota.
+- **Abuse limits:** upload and quiz-generation rate limits return `429` with a `Retry-After`.
+- **Browser hardening:** a Content-Security-Policy and security headers ship with the frontend.
+- **Tests:** about 300 automated tests (backend pytest including real-pgvector queries, frontend Vitest), run in CI on every push.
+
 ## Status
 
 Early development, with the core loop working end to end: upload a PDF, have a quiz written from it, take the quiz, and see each answer marked with the page it came from. The frontend is in `frontend/`, the API and the generation pipeline in `backend/` (which also keeps the M1 command-line tool). Embeddings and topic-targeted retrieval (semantic topic search), short review quizzes on missed topics, and a per-PDF Progress page (weak and strong topics, passing rate, score history) are in. Sharing by link and leaderboards come next.
