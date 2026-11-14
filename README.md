@@ -26,7 +26,7 @@ An account (email or Google) is required for all of it.
 
 ## Status
 
-Early development, with the core loop working end to end: upload a PDF, have a quiz written from it, take the quiz, and see each answer marked with the page it came from. The frontend is in `frontend/`, the API and the generation pipeline in `backend/` (which also keeps the M1 command-line tool). Embeddings and topic-targeted retrieval (M2), then sharing and stats, come next.
+Early development, with the core loop working end to end: upload a PDF, have a quiz written from it, take the quiz, and see each answer marked with the page it came from. The frontend is in `frontend/`, the API and the generation pipeline in `backend/` (which also keeps the M1 command-line tool). Embeddings and topic-targeted retrieval (semantic topic search), short review quizzes on missed topics, and a per-PDF Progress page (weak and strong topics, passing rate, score history) are in. Sharing by link and leaderboards come next.
 
 ## Run it locally
 
@@ -75,7 +75,10 @@ uv sync
 uv run bookwyrm generate path/to/notes.pdf --count 5
 uv run bookwyrm generate notes.pdf --types mcq,true_false --difficulty hard --pages 10-40 --json quiz.json
 uv run bookwyrm chunks notes.pdf   # see how the PDF was split into passages
+uv run bookwyrm embed-missing      # embed passages that have no vector from the current model (safe to re-run)
 ```
+
+Embeddings use `EMBEDDING_PROVIDER` (default `gemini`, model `gemini-embedding-001`); a blank `EMBEDDING_MODEL` falls back to the default. Changing `EMBEDDING_DIM` needs a migration and re-embedding.
 
 Groq is the primary model and Gemini the fallback (used when Groq fails, if `GEMINI_API_KEY` is set). Set `LLM_PROVIDER=fake` to try the whole pipeline with no key: it writes simple questions straight from the text.
 
