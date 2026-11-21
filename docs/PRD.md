@@ -9,7 +9,7 @@
 
 ## 1. Overview
 
-A web app that turns educational PDFs into quizzes. The user uploads a document, the system indexes it with retrieval-augmented generation (RAG), and an LLM generates questions grounded in the source text. Every question cites the page it came from and is checked by a verification pass before the user sees it. Results feed into per-PDF stats (weak and strong topics, passing confidence) and short review quizzes on weak topics.
+A web app that turns educational PDFs into quizzes. The user uploads a document, the system indexes it with retrieval-augmented generation (RAG), and an LLM generates questions grounded in the source text. Every question cites the page it came from and is checked by a verification pass before the user sees it. Results feed into per-PDF stats (weak and strong topics, passing rate) and short review quizzes on weak topics.
 
 **One-line pitch:** AI quizzes you can verify: every question cites its source page.
 
@@ -38,7 +38,7 @@ log in (email or Google)
 
 **Lifetime:** the creator sets how long a quiz (and its share link) lives, up to a maximum of 7 days. When it expires the quiz is deleted automatically and its link stops working. The PDF stays in the owner's library, and what the attempts revealed lives on in that PDF's stats (7.6).
 
-**PDF stats and history:** every PDF in the library has a stats view: weak and strong topics and a passing confidence rate, built from all the quizzes taken on it. Deleting the PDF moves its stats to the **History** section (title and stats only; the file, its text and its quizzes are gone).
+**PDF stats and history:** every PDF in the library has a stats view: weak and strong topics and a passing rate, built from the first attempt at each quiz taken on it. Deleting the PDF moves its stats to the **History** section (title and stats only; the file, its text and its quizzes are gone).
 
 ## 2. Problem Statement
 
@@ -96,10 +96,10 @@ log in (email or Google)
 
 ### 7.2 Quiz generation (P0)
 - Inputs: document, optional topic/page range, difficulty, question count, question types.
-- Retrieve relevant chunks via vector similarity search.
+- Retrieve relevant chunks: keyword matches plus the nearest passages by meaning (DECISIONS D10).
 - Prompt the LLM to return questions as JSON.
 - Validate output against a Pydantic schema; retry on malformed output.
-- Question types: multiple choice, true/false, fill-in-the-blank, short answer.
+- Question types: multiple choice, true/false, fill-in-the-blank, short answer. *Short answer waits for AI grading (7.4); until then the app offers the first three (DECISIONS D8).*
 - Each question stores its source chunk ID and page number.
 - **Fixed question set:** a quiz is generated once from its configuration and its questions never change afterwards. Every attempt (retakes and other takers alike) gets the same questions, with the question order and the multiple-choice option order shuffled per attempt.
 
@@ -123,7 +123,9 @@ log in (email or Google)
 - Tag questions by topic/section.
 - Each PDF in the library has a **stats** view, updated whenever an attempt on one of its quizzes is submitted:
   - **Weak topics** and **strong topics**, each with the pages they come from.
-  - **Passing confidence rate:** how sure we are that the user can *consistently* score high on this material *now*, measured against a perfect 100%. It is a recency-weighted average of the user's latest scores on this PDF: the last 3 attempts, weighted 3, 2, 1 from newest to oldest (e.g. 100, 70, 40 → 80%). One lucky 100% among low scores barely moves it; several recent high scores push it toward 100%. Shown as a percentage, with the number of attempts it's based on.
+  - A topic needs at least 3 answered questions to be rated; until then it shows as "not enough yet". Weak is under 60% right, strong is 80% or more, between is "learning".
+  - **Passing rate:** the share of the user's quizzes on this PDF where they scored 70% or more. Shown as a percentage, with the number of quizzes it's based on.
+  - **Only the first attempt at each quiz counts.** Retakes are practice and change no stats, so memorising a fixed question set can't inflate them (DECISIONS D14).
   - Score history across quizzes.
 - Stats outlive the quizzes: when a quiz expires (7.11) and its attempts are deleted, the stats it contributed stay.
 - **Manual PDF deletion** removes the file, chunks and any remaining quizzes, and moves the stats to a **History** section: the PDF's title and its final stats only, with no link back to content.
@@ -131,11 +133,10 @@ log in (email or Google)
 
 ### 7.7 Topic review quizzes (P1)
 A short quiz on one weak topic, started by the user. It is a one-off: nothing is scheduled or brought back automatically (this replaces scheduled spaced repetition).
-- **Start:** from a results page or a PDF's stats, pick a weak topic → a short quiz (about 5 questions) is generated from that topic's pages only.
+- **Start:** from a results page or a PDF's stats, pick a weak or missed topic → a short multiple-choice quiz is generated from the passages about that topic only. The number of questions is suggested by how much the PDF says about the topic, so a thin topic never fails for being asked too much.
 - **Generated once:** a fixed question set like any quiz (7.2); private, not shareable, normal lifetime rule.
-- **After answering, two options:** retake this topic quiz (same questions, shuffled) or retake the full review quiz it came from, if that quiz is still valid.
-- **Only the first attempt counts:** it updates the topic's weak/strong stats; retakes are practice and change nothing.
-- **Separate from the confidence rate:** topic quizzes never count toward the passing confidence rate, which is based on full quizzes only.
+- **Counts like any quiz:** its first attempt updates the topic stats and the passing rate; retakes (same questions, shuffled) are practice and change nothing (DECISIONS D11).
+- *Planned with sharing:* after answering, also offer to retake the full review quiz it came from, if that quiz is still valid.
 - Available while the user can still open the PDF (owner, or a shared taker whose link is valid).
 
 ### 7.8 Chat with the PDF (P2)
@@ -168,7 +169,7 @@ A short quiz on one weak topic, started by the user. It is a one-off: nothing is
 - Opening a link requires login. If the quiz has expired, the link shows an "expired" message instead.
 - Shared takers see the same mode rules as the creator (one attempt in quiz mode).
 - **Review-mode links also share the PDF:** takers can open and read the PDF (read-only, no re-sharing) while the link is valid, so they can study the pages their weak topics point to. Quiz-mode links never expose the PDF.
-- **Shared takers build their own stats** for that PDF (weak/strong topics, passing confidence), exactly like the owner. These appear in their library under **Shared with me** while the link is valid. When the link expires or the owner deletes the PDF, the taker loses access to the PDF and the stats move to the taker's History (title and stats only).
+- **Shared takers build their own stats** for that PDF (weak/strong topics, passing rate), exactly like the owner. These appear in their library under **Shared with me** while the link is valid. When the link expires or the owner deletes the PDF, the taker loses access to the PDF and the stats move to the taker's History (title and stats only).
 
 **Lifetime:**
 - Set in the configuration; maximum 7 days.
@@ -203,7 +204,7 @@ Acceptance criteria:
 
 ## 9. Technical Approach
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for the stack, pipelines, data model, API surface, security, evaluation harness and deployment.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the stack, pipelines, data model, API surface, security, evaluation harness and deployment, and [DECISIONS.md](./DECISIONS.md) for what has been decided and built, and why.
 
 ## 10. Key Risks and Mitigations
 
@@ -248,18 +249,10 @@ Publish results in the README.
 
 ## 14. Open Questions
 
+Answered questions are recorded in [DECISIONS.md](./DECISIONS.md).
+
 - Final product name?
-- ~~Which LLM provider is the default (Gemini vs Groq)?~~ Decided: Groq primary, Gemini as automatic fallback; the evaluation compares them.
 - Add a reranker in v1, or only after measuring baseline retrieval quality?
-- Local embeddings or hosted?
+- Add a local embedding option next to the hosted one (hosted Gemini today, DECISIONS D9)?
 - Hosted or self-hosted deployment?
 - Support non-English PDFs (e.g. Filipino) in v1?
-- ~~Auth method: email/password only, or OAuth too?~~ Decided: email/password and Google OAuth (7.10).
-- ~~When a quiz expires, is the PDF deleted too?~~ Decided: no, it stays in the library with its stats (7.6).
-- ~~Does auto-delete lose long-term progress?~~ Decided: per-PDF stats outlive quizzes; deleted PDFs move to History (7.6).
-- ~~Leaderboard tie-break?~~ Decided: shared rank (7.11).
-- ~~Can the creator take their own quiz-mode quiz?~~ Decided: yes, and they appear on the leaderboard (7.11).
-- ~~Review-mode share: whose weak topics?~~ Decided: each taker sees only their own (7.11).
-- ~~Passing confidence rate?~~ Decided: recency-weighted average of the last 3 scores, measured against 100% (7.6).
-- ~~Do shared takers build stats?~~ Decided: yes, and review-mode links share the PDF read-only (7.11).
-- ~~Spaced repetition vs 7-day deletion?~~ Decided: no scheduled spaced repetition; one-off topic review quizzes started by the user instead (7.7).

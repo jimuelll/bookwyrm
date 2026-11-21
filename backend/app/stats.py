@@ -1,6 +1,6 @@
 """What a reader's quizzes say about one PDF: which topics they know, which they don't, and how they score.
 
-Three rules shape the numbers (docs/PRD.md 7.6, 7.8):
+Three rules shape the numbers (docs/PRD.md 7.6, docs/DECISIONS.md D12-D14):
 
   * Only the first finished attempt at each quiz counts. "Take it again" is practice: counting retakes
     would let anyone raise a weak topic's score by memorising the same questions.

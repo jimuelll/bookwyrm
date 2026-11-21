@@ -2,7 +2,7 @@
 
 **Project:** Bookwyrm *(working name)*
 **Status:** Draft v0.1
-**Related:** [PRD.md](./PRD.md)
+**Related:** [PRD.md](./PRD.md), [DECISIONS.md](./DECISIONS.md)
 
 This document describes how the system is built and why. The PRD describes what it does.
 
@@ -40,7 +40,7 @@ This document describes how the system is built and why. The PRD describes what 
                      ┌───────────────▼────────────────┐        ┌──────────────────────┐
                      │ Supabase Postgres + pgvector   │        │ LLM / Embedding      │
                      │ users · docs · chunks · quizzes│        │ providers (Gemini,   │
-                     │ attempts · review schedule     │        │ Groq, local)         │
+                     │ attempts · stats               │        │ Groq, local)         │
                      └───────────────┬────────────────┘        └──────────────────────┘
                                      │
                               ┌──────▼──────┐
@@ -57,12 +57,12 @@ This document describes how the system is built and why. The PRD describes what 
 
 | Layer | Choice | Rationale |
 |---|---|---|
-| Frontend | React, TypeScript, Vite, React Router, TanStack Query, Tailwind | Fast iteration; React Router for pages; server state handled by TanStack Query |
+| Frontend | React, TypeScript, Vite, React Router, Tailwind | Fast iteration; React Router for pages; server state through a small `useApi`/`useResource` pair (TanStack Query if caching gets complex) |
 | Backend | Python 3.12, FastAPI, Pydantic v2 | Strongest AI/PDF ecosystem; typed schemas double as validation |
 | Database | Supabase Postgres + pgvector | One store for relational data and vectors; supports hybrid search; managed, with a free tier |
 | PDF parsing | PyMuPDF (Docling/Unstructured if layout or tables need it) | Fast, page-accurate extraction |
 | LLM / embeddings | Groq (primary) and Gemini (fallback) behind a provider interface, called over REST with httpx | Free tiers; swappable for comparison; no vendor SDKs to keep in step |
-| Structured output | Instructor / provider-native structured output + Pydantic | Fewer hand-rolled retries |
+| Structured output | JSON mode + Pydantic validation + re-ask with the error (DECISIONS D4) | Same on every provider; no extra dependency |
 | Jobs | FastAPI background tasks → Postgres-backed queue → ARQ/Celery + Redis only if needed | Start simple, upgrade on evidence |
 | Migrations | Alembic (`backend/migrations/`), run with `uv run alembic upgrade head` | Standard with SQLAlchemy; the same files build every database (Supabase, CI) |
 | ORM / DB access | SQLAlchemy 2.x (async) + pgvector adapter | |
@@ -96,14 +96,16 @@ Upload → validate → store file → create document (status=queued)
 **Built so far** (`backend/app/documents.py`, `app/storage.py`, migration `0002_documents.py`):
 - **In the request** (`POST /documents`): first the per-reader limits (§9: rate limit → 429, already at the document or storage quota → 413), before any of the file is read. Then the upload is streamed to a temporary file 1 MB at a time, hashed as it goes, and cut off as soon as it passes `MAX_UPLOAD_MB` (413). Then the quick checks run (`inspect_pdf`, in a sandboxed child process, §9: `%PDF-` magic bytes, opens, no password, at most `MAX_PAGES`), so a wrong file gets an immediate 422 with a message for the reader. Under a per-reader lock, the quota is checked again with this file's size (413 if it doesn't fit) before the row and file are saved. The browser's `Content-Type` is not trusted. If this reader already has a file with the same hash, that document comes back (200) instead of a copy, unless the old one failed, in which case it is replaced and read again.
 - **In a FastAPI background task** after the 202 response: `extracting` → `chunking` → `ready`, each persisted. Extraction runs in a sandboxed child process and chunking is blocking code; both are waited on from a worker thread (`asyncio.to_thread`). A `PdfError` (e.g. every page scanned, or the parse timed out or crashed) ends in `failed` with its message; any other exception is logged and the reader sees a generic message.
-- **Embedding** (`app/providers/embeddings.py`, migration `0006`): after chunking, each passage gets a 768-number vector from Gemini (`gemini-embedding-001`, passages embedded as documents, topics as queries), stored in `chunks.embedding` (pgvector) with the model's name. It is best effort: with no key, or if the service fails, the book still becomes `ready` and topics fall back to keywords. There is deliberately no HNSW index: every search is within one document (a few hundred rows), where an exact scan is fast and exact.
-- **Topic search** (`app/retrieval.py`, `app/generation/scope.py`): a topic's passages are the union of the keyword matches and the nearest passages by cosine similarity (top 12, at least `SEMANTIC_MIN_SIMILARITY`; the floor is what lets "nothing about that" still happen). Topic vectors are cached. Used by the quiz-scope preview and by quiz writing, so "energy production" finds the "ATP synthesis" passage.
+- **Embedding** (`app/providers/embeddings.py`, migration `0006`): after chunking, each passage gets a best-effort Gemini vector in `chunks.embedding`; no vector index (DECISIONS D9).
+- **Topic search** (`app/retrieval.py`, `app/generation/scope.py`): keyword matches ∪ nearest passages above a similarity floor (DECISIONS D10). Used by the quiz-scope preview and by quiz writing, so "energy production" finds the "ATP synthesis" passage.
 - **Backfill** (`bookwyrm embed-missing`, `backfill_embeddings` in `app/documents.py`): embeds passages that have no vector from the current model (books read before `0006`, books whose embedding call failed, or every book after a model change). Safe to re-run; a book that fails is skipped and left for the next run.
-- **Stats** (`app/stats.py`, `GET /documents/{id}/stats`): per-topic right/total, passing rate and scores over time from a reader's own *first finished attempt at each quiz* (retakes are practice and never count). A topic needs 3 answers to be rated: weak under 60%, strong at 80% or more, learning between; a sitting passes at 70%. Topics are merged by case and spacing only, since the question writer's labels are free text; merging synonyms by embedding is a later step. The thresholds are constants at the top of the module.
-- **Not yet:** structure/headings, hybrid ranking with RRF and a reranker (scope is a set, so a union is used), backfilling embeddings for books read before `0006`, resuming a failed job. A restart kills jobs in progress, so on startup the API marks unfinished documents `failed` ("interrupted, upload it again"). That assumes one API process; the `jobs` table replaces it before we run several.
+- **Stats** (`app/stats.py`, `GET /documents/{id}/stats`): computed on read from the reader's first finished attempt at each quiz: per-topic levels, passing rate, scores over time (DECISIONS D12-D14).
+- **Not yet:** structure/headings, hybrid ranking with RRF and a reranker, resuming a failed job. A restart kills jobs in progress, so on startup the API marks unfinished documents `failed` ("interrupted, upload it again"). That assumes one API process; the `jobs` table replaces it before we run several.
 - **File storage** (`app/storage.py`, behind one `FileStore` interface): the private Supabase Storage bucket `documents` (migration `0003`: not public, no storage policies, 25 MB and `application/pdf` only), reached over Storage's REST API with `SUPABASE_SECRET_KEY`, which stays server-side. Objects are `<user id>/<document id>.pdf`, never the uploaded name. Without the key (tests, offline work) files go to a folder on the API's disk (`STORAGE_DIR`) instead; most hosts wipe that on redeploy, so production needs the key. The ingestion job downloads a temporary copy for PyMuPDF and deletes it when done. Ordering keeps the two in step: on upload the row is created, then the file stored, and the row removed again if storing fails (`503`); on delete the file goes first, so a storage outage leaves the book in place to retry rather than an orphaned file. Later, "Open PDF" will use short-lived signed URLs from the API.
 
 ### 4.2 Retrieval
+
+*Built today: topic scope is keyword ∪ vector, no ranking (DECISIONS D10). The rest of this section is the plan for when a ranked list is needed (chat, evaluation).*
 
 **Hybrid search** combines two signals:
 - **Vector similarity** (cosine) over chunk embeddings for meaning.
@@ -173,16 +175,16 @@ At attempt time, a grading call compares the user's answer to the reference answ
 
 ### 4.5 PDF Stats, History and Topic Review Quizzes
 
+**Built today** (`app/stats.py`): stats are computed on read from the reader's first finished attempt at each quiz; topic levels use a 3-answer minimum and 60% / 80% thresholds; the headline number is the **passing rate**, the share of counted sittings at 70% or more (DECISIONS D12-D14). Topic review quizzes are ordinary quizzes with a `topic` (D11). The rest of this section is the plan for when quizzes expire and History exists.
+
 - Every answer is stored with `is_correct`, `topic` and `question_id` (until its quiz expires).
-- **Stats are folded in at submit time.** When an attempt is submitted, its per-topic correct/total counts are added to `topic_stats` and its score to `score_history`, all keyed by `stats_id`. Because stats never read from `answers` later, expiring quizzes and deleting attempts loses nothing.
-- **Weak / strong topics:** accuracy per topic from `topic_stats`, with a minimum-sample threshold; lowest are weak, highest are strong.
-- **Passing confidence rate:** from `score_history`, the last 3 full-quiz scores (0-100) newest first, weighted 3, 2, 1: `Σ wᵢ·scoreᵢ / Σ wᵢ` over the attempts that exist. Returned with the attempt count so the UI can show "based on 3 attempts".
+- **Stats are folded in at submit time** (planned, needed before expiry or History ships). When a counted attempt is submitted, its per-topic correct/total counts are added to `topic_stats` and its score to `score_history`, all keyed by `stats_id`. Because stats never read from `answers` later, expiring quizzes and deleting attempts loses nothing.
+- **Weak / strong topics:** accuracy per topic from `topic_stats`, with the D13 thresholds.
+- **Passing rate:** from `score_history`, the share of counted sittings at or above the pass mark, returned with the count so the UI can show "based on 3 quizzes".
 - **Shared takers** get their own `document_stats` row for the owner's document (`user_id` = the taker). Their stats are updated the same way as the owner's.
 - **History:** `document_stats.document_id` is `ON DELETE SET NULL` and the row keeps a `title` snapshot. Deleting a document cascades to chunks, file and quizzes; its stats row stays with `document_id = NULL` and is shown in History. Deleting a history entry deletes the stats row and its children.
-- **Topic review quizzes:** `POST /documents/{id}/topic-quizzes` with a `topic` (and the `source_quiz_id` it came from, if any) runs the 4.3 pipeline restricted to that topic's `heading_path` / page range, about 5 questions, `kind = 'topic'`, private (`share_token` NULL). Nothing is scheduled.
-  - The first submitted attempt on a topic quiz updates `topic_stats`; later attempts are graded and shown but write no stats.
-  - Topic quizzes never write to `score_history`, so they never affect the passing confidence rate.
-  - The results page offers "retake this topic quiz" (new attempt, new shuffle) and "retake the review quiz" (only if `source_quiz_id` still exists and hasn't expired).
+- **Topic review quizzes:** `POST /documents/{id}/quizzes` with a `topic`, no `count` (the server suggests one from how much the PDF says about it), private. Nothing is scheduled. Like any quiz, only the first attempt counts and retakes are practice.
+  - Planned with sharing: keep the `source_quiz_id` it came from, so the results page can offer "retake the review quiz" while that quiz is still valid.
 
 ### 4.6 Chat with the PDF
 
@@ -201,13 +203,13 @@ documents(id, user_id REFERENCES auth.users ON DELETE CASCADE, title, filename, 
           error, created_at, updated_at)   -- built (0002, size_bytes 0004); the file's path is derived from (user_id, id)
 
 chunks(id, document_id REFERENCES documents ON DELETE CASCADE, ordinal, page_start, page_end,
-       text, token_count, page_marks jsonb)   -- built (0002); page_marks = where each page starts in text
-      -- planned: heading_path, embedding vector(N), embedding_model, tsv tsvector
+       text, token_count, page_marks jsonb,   -- built (0002); page_marks = where each page starts in text
+       embedding vector(768) NULL, embedding_model NULL)   -- built (0006)
+      -- planned: heading_path, tsv tsvector
 
 quizzes(id, user_id, document_id REFERENCES documents ON DELETE CASCADE, config jsonb,
         status CHECK in ('generating','ready','failed'), error, created_at, updated_at)   -- built (0005)
-      -- planned: mode ('review' | 'quiz'), kind ('full' | 'topic'), topic NULL,
-      --   source_quiz_id NULL REFERENCES quizzes ON DELETE SET NULL, share_token UNIQUE,
+      -- planned: mode ('review' | 'quiz'), source_quiz_id NULL REFERENCES quizzes ON DELETE SET NULL, share_token UNIQUE,
       --   expires_at with CHECK (expires_at <= created_at + interval '7 days')
 
 questions(id, quiz_id REFERENCES quizzes ON DELETE CASCADE, ordinal, type, prompt,
@@ -225,24 +227,24 @@ answers(id, attempt_id REFERENCES attempts ON DELETE CASCADE, question_id, respo
       -- planned with short-answer grading: grade, feedback
 
 
+-- planned (needed before quiz expiry or History; today stats are computed from attempts, DECISIONS D12):
 document_stats(id, user_id, document_id NULL REFERENCES documents ON DELETE SET NULL,
                title, created_at, archived_at NULL)
       -- document_id NULL = the PDF was deleted; the row is a History entry
 
 topic_stats(stats_id, topic, heading_path, page_start, page_end, correct, total, updated_at)
 
-score_history(id, stats_id, mode ('review' | 'quiz'), score, taken_at)   -- full quizzes only
+score_history(id, stats_id, mode ('review' | 'quiz'), score, taken_at)   -- counted attempts only
 
 jobs(id, document_id, type, status, step, attempts, last_error, updated_at)
 ```
 
 **Indexes**
-- `chunks`: HNSW on `embedding` (cosine), GIN on `tsv`, B-tree on `(document_id, page_start)`.
+- `chunks`: B-tree on `(document_id, page_start)`; GIN on `tsv` when full-text search lands. No HNSW on `embedding` while every search stays inside one document (DECISIONS D9).
 - `documents`: unique `(user_id, content_hash)`.
 - `answers`: `(attempt_id)`, and `(question_id)` for topic analytics.
 - `quizzes`: unique `share_token`; B-tree on `expires_at` for the cleanup job.
 - `attempts`: unique `(quiz_id, user_id)` where the quiz is in quiz mode (one attempt only); `(quiz_id, score DESC)` for the leaderboard.
-- `users`: unique `email`; unique `google_sub`.
 - `document_stats`: unique `(user_id, document_id)`; `(user_id) WHERE document_id IS NULL` for History.
 - `topic_stats`: primary key `(stats_id, topic)`.
 
@@ -259,8 +261,8 @@ jobs(id, document_id, type, status, step, attempts, last_error, updated_at)
 | GET | `/health` | Liveness check, no login |
 | POST | `/documents` | Upload a PDF (multipart, field `file`). `202` stored and queued for reading; `200` this reader already has this exact file (that document is returned); `413` too large, or no room in the reader's quota; `422` not a usable PDF, with the reason; `429` too many uploads (with `Retry-After`) |
 | GET | `/documents`, `/documents/{id}` | The reader's own documents, newest first; one document's status (`404` for anyone else's) |
-| DELETE | `/documents/{id}` | Delete document, chunks and file (`204`); later also its quizzes, with its stats moving to History |
-| GET | `/documents/{id}/quiz-scope?topic=` | Before asking for a quiz: how much of the document is in scope (all of it, or the passages about `topic`) and how many questions suit it: `{topic, passages, page_first, page_last, suggested_count, max_count}`. `passages: 0` means the document never mentions the topic. No model call (`app/generation/scope.py`): topics are matched by keyword with BM25-style weighting until embeddings exist; counts come from the tokens in scope (about one suggested question per 300, at most one per 40, capped at 20) |
+| DELETE | `/documents/{id}` | Delete document, chunks, file and its quizzes (`204`; the quizzes cascade, and today their stats go with them). Later its stats move to History |
+| GET | `/documents/{id}/quiz-scope?topic=` | Before asking for a quiz: how much of the document is in scope (all of it, or the passages about `topic`) and how many questions suit it: `{topic, passages, page_first, page_last, suggested_count, max_count}`. `passages: 0` means the document never mentions the topic. No generation call (`app/generation/scope.py`): a topic's passages are keyword matches ∪ nearest passages by embedding (DECISIONS D10; the topic's vector is cached); counts come from the tokens in scope (about one suggested question per 300, at most one per 40, capped at 20) |
 | POST | `/documents/{id}/quizzes` | Ask for a quiz: `{count?, difficulty, types, pages?, topic?}` (types limited to the ones marked without a model: `mcq`, `true_false`, `fill_blank`; `count` left out means the suggested number; `topic` narrows both the passages used and what the questions ask). `202` being written (poll `GET /quizzes/{id}`); `409` the PDF isn't ready, or this reader already has a quiz being written; `422` nothing in scope, or more questions than the material in scope can carry; `429` too many (with `Retry-After`). Later also `mode` and `lifetime_hours` ≤ 168 |
 | GET | `/quizzes` | The reader's own quizzes, newest first |
 | GET | `/s/{share_token}` | Resolve a share link to its quiz (auth required; `410` if expired) |
@@ -270,10 +272,9 @@ jobs(id, document_id, type, status, step, attempts, last_error, updated_at)
 | POST | `/quizzes/{id}/attempts` | Start an attempt (`201`): the questions in an order shuffled for it, with no answers, evidence or pages |
 | GET | `/attempts/{id}` | The attempt as it stands: questions while open, marked results once submitted |
 | POST | `/attempts/{id}/submit` | `{answers: {question_id: option id or text}}`; marks them on the server and returns each with the right answer, explanation, page and evidence. A question left out counts as wrong; `409` if already submitted |
-| GET | `/documents/{id}/stats` | A PDF's weak/strong topics, passing confidence and score history |
+| GET | `/documents/{id}/stats` | A PDF's weak/learning/strong/unrated topics with pages, passing rate and score history (DECISIONS D12-D14) |
 | GET | `/history` | Stats of deleted PDFs (title + stats only) |
 | DELETE | `/history/{stats_id}` | Remove a history entry |
-| POST | `/documents/{id}/topic-quizzes` | One-off short quiz on a weak topic |
 | POST | `/documents/{id}/chat` | RAG Q&A (SSE stream) |
 | GET | `/quizzes/{id}/export?format=anki\|pdf` | Export |
 
@@ -332,7 +333,7 @@ Use an LLM judge to scale, but validate it against the human labels on a sample 
 - **Authorization:** ownership checks on every document, quiz and attempt; shared quizzes are reachable only through an unguessable, unexpired share token, and the shared PDF only through a review-mode token.
 - **Expiry:** expired quizzes are rejected on read and hard-deleted by the cleanup job.
 - **Secrets:** provider keys server-side only, loaded from environment, never logged.
-- **Rate limiting:** uploads are limited (above); generation and chat need the same once they exist, to control cost and abuse.
+- **Rate limiting:** uploads (above) and quiz generation (`QUIZ_RATE_COUNT` per `QUIZ_RATE_WINDOW_SECONDS`, `429` with `Retry-After`, one quiz being written per reader at a time) are limited, in process memory (DECISIONS D7). Chat needs the same once it exists.
 - **Still out of scope:** revoking access tokens before they expire (the API verifies JWTs offline, so a stolen token works until its `exp`, about an hour; signing out only stops the refresh token; a short JWT expiry in Supabase, or a server-side denylist checked per request, would narrow that); moving the session out of `localStorage` into an httpOnly cookie via a backend-for-frontend (the CSP narrows, but doesn't close, the XSS window); Trusted Types (`require-trusted-types-for 'script'`, which needs the engraved desk's `dangerouslySetInnerHTML` routed through a policy); CSP violation reporting (`report-to`); a memory cap on Windows; a shared rate-limit store for several API processes; virus scanning of uploads.
 - **Privacy:** delete cascades (document → chunks → file → quizzes); only the title and aggregate stats are kept as a History entry until the user deletes it; do not send documents to a provider the user has not been told about.
 
@@ -360,31 +361,36 @@ bookwyrm/
 ├── docs/
 │   ├── PRD.md
 │   ├── ARCHITECTURE.md
-│   ├── EVALUATION.md
-│   └── DECISIONS.md
+│   ├── DESIGN.md
+│   ├── DECISIONS.md
+│   ├── TEST.md
+│   └── EVALUATION.md       # planned
 ├── backend/
 │   ├── app/
-│   │   ├── main.py
+│   │   ├── main.py         # the FastAPI app and its routes
 │   │   ├── config.py
-│   │   ├── quotas.py       # per-reader upload quotas and rate limit
-│   │   ├── api/            # routers
-│   │   ├── core/           # auth (Supabase JWT checks), later security, logging
-│   │   ├── db/             # models, session, migrations (alembic)
-│   │   ├── ingestion/      # extract (in a sandboxed process), structure, chunk, embed
-│   │   ├── retrieval/      # vector, fulltext, fusion, rerank
-│   │   ├── generation/     # prompts, schemas, verify, dedupe
-│   │   ├── grading/
-│   │   ├── progress/       # stats, confidence, topic quizzes
-│   │   ├── providers/      # llm + embedding interfaces and impls
-│   │   └── jobs/
+│   │   ├── cli.py          # bookwyrm generate | chunks | embed-missing
+│   │   ├── documents.py    # document store, ingestion job, embedding backfill
+│   │   ├── storage.py      # FileStore: Supabase bucket or local folder
+│   │   ├── quotas.py       # per-reader upload quotas and rate limits
+│   │   ├── quizzes.py      # quiz/attempt store, marking
+│   │   ├── retrieval.py    # topic search (keyword ∪ vector)
+│   │   ├── stats.py        # per-PDF stats
+│   │   ├── profiles.py     # display names
+│   │   ├── core/           # auth (Supabase JWT checks)
+│   │   ├── db/             # models, session
+│   │   ├── ingestion/      # extract (in a sandboxed process), chunk
+│   │   ├── generation/     # prompts, schemas, checks, pipeline, scope
+│   │   └── providers/      # llm + embedding interfaces and impls
+│   ├── migrations/         # alembic
 │   ├── tests/
 │   └── pyproject.toml
 ├── frontend/
 │   ├── src/
-│   │   ├── app/            # router layout, app bar, account menu, login-required wrapper
-│   │   ├── features/       # one folder per page/area: landing, about, auth, library (later quiz, results, ...)
+│   │   ├── app/            # router layout, app bar, account menu, login gate, upload, typed API client
+│   │   ├── features/       # one folder per page/area: landing, about, auth, library, quiz, stats, settings
 │   │   ├── components/
-│   │   ├── api/            # typed client
+│   │   ├── scene/          # three.js hero
 │   │   └── hooks/
 │   └── package.json
 ├── eval/
@@ -398,7 +404,7 @@ bookwyrm/
 
 ## 13. Testing Strategy
 
-- **Unit:** chunking, citation/evidence matching, RRF, passing confidence, schema validation.
+- **Unit:** chunking, citation/evidence matching, topic scope, stats (levels, passing rate), schema validation.
 - **Integration:** ingestion → retrieval → generation against a small fixture PDF using a **fake provider** that returns canned outputs, so tests are deterministic and free.
 - **API tests:** auth, ownership, answer-hiding before submission.
 - **Contract tests:** each real provider implementation against the interface (run manually or nightly, since they cost money and need keys).
@@ -412,21 +418,18 @@ bookwyrm/
 - **Backend and data:** backend container on Fly.io, Railway or Render (or Cloudflare later); for now the deployed site reuses the dev Supabase project, with the live address added to its redirect URLs. A separate production Supabase project comes before real users.
 - **CI:** GitHub Actions running lint, type-check and tests on every push; migrations applied on deploy.
 
-## 15. Key Decisions and Open Questions
+## 15. Open Decisions
 
-| Decision | Current choice | Revisit when |
+Decisions already made and built (platform, auth, LLM provider, structured output, embeddings, retrieval, stats, limits) are in [DECISIONS.md](./DECISIONS.md). These are still planned or open:
+
+| Decision | Current plan | Revisit when |
 |---|---|---|
-| Vector store | pgvector in Postgres | Index size or recall becomes a bottleneck |
-| Retrieval | Hybrid (vector + full-text, RRF) | Evaluation shows vector-only is as good |
+| Ranked retrieval | Hybrid (vector + full-text, RRF) once chat needs a ranking | Evaluation shows vector-only is as good |
 | Reranker | Optional, off by default | Evaluation shows a meaningful gain |
-| Job system | Background tasks / DB queue | Jobs need scheduling, priorities or heavy parallelism |
-| Platform | Supabase for Auth, Postgres (pgvector) and Storage | Free-tier limits bite, or we need something Supabase can't do |
-| Auth | Supabase Auth (email + Google), PKCE, email confirmation; API verifies JWTs | Adding more providers or teams |
-| Quiz lifetime | Max 7 days, then hard delete | Users need longer-lived quizzes or history |
+| Job system | Background tasks now; `jobs` table / DB queue next | A second API process, or jobs need scheduling, priorities or heavy parallelism |
+| Quiz lifetime | Max 7 days, then hard delete (needs stats tables first, DECISIONS D12) | Users need longer-lived quizzes or history |
 | OCR | Out of scope for v1 | Users upload scanned documents |
-| Embedding model | Hosted default, local option | Cost, privacy or non-English quality demands change |
-| LLM provider | Groq primary; Gemini used for the rest of a run once Groq fails | The evaluation shows Gemini is as accurate, or Groq's free tier is too limiting |
-| Structured output (M1) | JSON mode + Pydantic validation + re-ask with the error, not provider-native schemas | Malformed-reply rate is high enough in the evaluation to justify native schemas |
+| Local embedding model | Not built; hosted Gemini only | Cost, privacy or non-English quality demands change |
 | Non-English (e.g. Filipino) | Not guaranteed in v1 | A multilingual embedding model is tested in the evaluation |
 
-Record each real decision, with the evidence behind it, in `docs/DECISIONS.md` as the project progresses.
+When one of these is decided, record it with the evidence behind it in DECISIONS.md and remove the row.

@@ -14,13 +14,13 @@ Bookwyrm keeps every question grounded in your document and shows its source, so
 
 ## What it does
 
-- **Upload a PDF.** It is read page by page, keeping headings and page numbers.
-- **Get a cited quiz.** Multiple choice, true/false, fill-in-the-blank and short answer, each linked to its page.
+- **Upload a PDF.** It is read page by page, keeping page numbers.
+- **Get a cited quiz.** Multiple choice, true/false and fill-in-the-blank (short answer coming), each linked to its page.
 - **Verified questions.** A second check rejects questions that are ambiguous or not answerable from the source.
 - **See what to study.** Your score as a percentage plus the topics and pages you need to review.
 - **Review or quiz mode.** Review mode for unlimited practice on weak topics; quiz mode for a one-time attempt with a leaderboard for that quiz.
 - **Share by link.** Classmates log in to take your quiz while it is valid (you choose how long, up to 7 days, then the quiz is deleted; the PDF stays).
-- **Stats per PDF.** Weak and strong topics and a passing confidence rate for each PDF in your library. Delete a PDF and its stats move to History.
+- **Stats per PDF.** Weak and strong topics and a passing rate for each PDF in your library, from your first try at each quiz. Delete a PDF and its stats move to History (planned).
 
 An account (email or Google) is required for all of it.
 
@@ -102,3 +102,4 @@ cd backend && uv run ruff check . && uv run ruff format --check . && uv run mypy
 - [PRD](./docs/PRD.md): what Bookwyrm does and why
 - [Architecture](./docs/ARCHITECTURE.md): how it is built
 - [Design](./docs/DESIGN.md): how it looks and feels
+- [Decisions](./docs/DECISIONS.md): what was decided while building it, and why
